@@ -1,7 +1,9 @@
+import { layoutHint, nearestNames } from "./catalog.js";
 import {
   candidateNarrowingDimensions,
   narrowingCountTools,
 } from "./narrowing.js";
+import { SCB_OPERATOR_NAMES } from "../scb/operators.js";
 
 export type ScbNextAction = "retry_same" | "retry_modified" | "abort_unanswerable";
 
@@ -28,6 +30,8 @@ export type QueryTooBroadContext = {
   objectType?: "company" | "workplace";
   layout?: "je" | "ae";
   appliedFilters?: unknown;
+  catalogCategoryNames?: string[] | undefined;
+  catalogVariableNames?: string[] | undefined;
 };
 
 export class ScbError extends Error {
@@ -80,6 +84,9 @@ export function queryTooBroad(
   const objectType = context.objectType;
   const appliedFilters = context.appliedFilters ?? {};
   const unbounded = isEmptyFilters(appliedFilters);
+  const catalogAvailable =
+    (context.catalogCategoryNames && context.catalogCategoryNames.length > 0) ||
+    (context.catalogVariableNames && context.catalogVariableNames.length > 0);
   return new ScbError(
     "QUERY_TOO_BROAD",
     `Query matched ${count} rows; SCB returns at most ${maxResults} rows and does not paginate.`,
@@ -90,17 +97,74 @@ export function queryTooBroad(
       objectType: objectType ?? null,
       layout: context.layout ?? (objectType === "workplace" ? "ae" : objectType === "company" ? "je" : null),
       appliedFilters,
-      candidateNarrowingDimensions: candidateNarrowingDimensions(objectType),
+      candidateNarrowingDimensions: candidateNarrowingDimensions(
+        objectType,
+        catalogAvailable
+          ? {
+              ...(context.catalogCategoryNames
+                ? { categoryNames: context.catalogCategoryNames }
+                : {}),
+              ...(context.catalogVariableNames
+                ? { variableNames: context.catalogVariableNames }
+                : {}),
+            }
+          : undefined,
+      ),
       doNotPaginate: true,
       unboundedQuery: unbounded,
       suggestion:
-        "Smalna frågan med fler SCB-kategorier (status, geografi, SNI, storleksklass). Paginera inte.",
+        "Smalna frågan med fler SCB-kategorier (status, geografi, SNI, storleksklass). Paginera inte. Använd scb_schema_summary och scb_lookup_codes.",
     },
     {
       nextAction: "retry_modified",
       nextTools: narrowingCountTools(objectType),
     },
   );
+}
+
+export function unknownOperatorError(operator: string): ScbError {
+  return new ScbError(
+    "SCB_INVALID_QUERY",
+    `Unknown SCB operator "${operator}".`,
+    false,
+    {
+      field: "operator",
+      unknownName: operator,
+      allowedOperators: [...SCB_OPERATOR_NAMES],
+      origin: "operator_allowlist",
+    },
+  );
+}
+
+export function withCatalogHints(
+  error: ScbError,
+  context: {
+    objectType?: "company" | "workplace";
+    categoryNames?: string[] | undefined;
+    variableNames?: string[] | undefined;
+  },
+): ScbError {
+  if (error.code === "SCB_UNKNOWN_CATEGORY" && context.categoryNames && context.categoryNames.length > 0) {
+    const unknown = typeof error.details.unknownName === "string" ? error.details.unknownName : "";
+    error.details.nearestNames = nearestNames(unknown, context.categoryNames);
+    const hint = context.objectType
+      ? layoutHint(unknown, context.objectType, context.categoryNames)
+      : undefined;
+    if (hint) {
+      error.details.layoutHint = hint;
+    }
+  }
+  if (error.code === "SCB_UNKNOWN_VARIABLE" && context.variableNames && context.variableNames.length > 0) {
+    const unknown = typeof error.details.unknownName === "string" ? error.details.unknownName : "";
+    error.details.nearestNames = nearestNames(unknown, context.variableNames);
+  }
+  if (
+    error.code === "SCB_INVALID_QUERY" &&
+    (error.details.field === "operator" || error.details.origin === "operator_allowlist")
+  ) {
+    error.details.allowedOperators = [...SCB_OPERATOR_NAMES];
+  }
+  return error;
 }
 
 export function mapHttpError(
@@ -227,11 +291,11 @@ function defaultNextTools(code: ScbErrorCode, details: Record<string, unknown>):
       : undefined;
   switch (code) {
     case "SCB_UNKNOWN_CATEGORY":
-      return ["scb_list_categories", "scb_get_category_values"];
+      return ["scb_schema_summary", "scb_list_categories", "scb_lookup_codes", "scb_get_category_values"];
     case "SCB_UNKNOWN_VARIABLE":
-      return ["scb_list_variables"];
+      return ["scb_schema_summary", "scb_list_variables"];
     case "SCB_INVALID_QUERY":
-      return ["scb_list_categories", "scb_list_variables"];
+      return ["scb_schema_summary", "scb_list_categories", "scb_list_variables"];
     case "QUERY_TOO_BROAD":
       return narrowingCountTools(objectType);
     case "SCB_RATE_LIMITED":

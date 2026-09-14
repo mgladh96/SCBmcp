@@ -6,31 +6,31 @@ Objekttyper (alltid explicita, aldrig ett generiskt "provider"):
 Gävleborg är AE-kategorin Län om användaren menar belägenhet. Använd Säteslän bara när användaren menar säte.
 
 Arbetsflöde:
-1. scb_list_categories och scb_list_variables för rätt objectType. Kategori- och variabelnamn MÅSTE komma från listverktygen (exakt stavning).
-2. scb_get_category_values för koder — inte svenska etiketter.
+1. scb_schema_summary för rätt objectType (kompakt katalog). Kategori- och variabelnamn MÅSTE komma därifrån eller från listverktygen (exakt stavning).
+2. scb_lookup_codes för koder från etiketter (Gävleborg, bygg, verksam, 10-49) — inte includeCodeTables=true.
 3. scb_count_* för att iterera. Om count=0: stanna, eller kontrollera koder / JE vs AE. Om count>2000: smalna filter. Paginera inte.
 4. scb_search_* hämtar bara när count≤2000. Search räknar internt och återanvänder en nylig count (kort TTL). Anropa inte extra count direkt före search.
 5. Tomma filter = hela populationen (warning). SCB returnerar högst 2000 rader.
 
 Anti-mönster:
 - Namn innehåller "Bygg" ≠ SNI/bransch. Använd kodtabell + ev. branchLevel.
-- Operatorer är SCB-strängar, t.ex. Innehaller — inte Contains/Equals.
+- Operatorer är SCB-enum: Innehaller, ArLikaMed, BorjarPa, Mellan, FranOchMed, TillOchMed, Finns, FinnsInte — inte Contains/Equals.
 - AnstSME ≠ Storleksklass Anställda. Använd namnet listverktyget returnerar.
 - Behåll fältet Reklam; kringgå inte reklamspärr.
 - Ingen historik i detta API.
 - Kvot: 10 anrop / 10 sekunder. Vid SCB_RATE_LIMITED: vänta retryAfterMs och upprepa samma anrop (retry_same). Servern väntar inte tyst.
 
-Fel-JSON: läs nextAction (retry_same | retry_modified | abort_unanswerable) och nextTools. QUERY_TOO_BROAD.details innehåller appliedFilters och candidateNarrowingDimensions.`;
+Fel-JSON: läs nextAction (retry_same | retry_modified | abort_unanswerable) och nextTools. QUERY_TOO_BROAD.details innehåller appliedFilters och candidateNarrowingDimensions (katalognamn när cache finns). SCB_UNKNOWN_* har nearestNames. Ogiltig operator har allowedOperators.`;
 
 export function exploreSchemaPrompt(objectType: string): string {
   const layout = objectType === "workplace" ? "AE (workplace)" : "JE (company)";
   return `Utforska SCB-schemat för ${layout} innan du filtrerar.
 
-1. Anropa scb_list_categories med objectType="${objectType}". Använd exakta Kategori-namn från items[].name.
-2. Anropa scb_list_variables med objectType="${objectType}". Variabler är fritext, inte kodtabeller.
-3. För varje kategori du behöver (status, geografi, SNI, storleksklass): scb_get_category_values.
+1. Anropa scb_schema_summary med objectType="${objectType}". Använd exakta namn från categories[].name / variables[].name.
+2. Anropa scb_lookup_codes för etiketter (Gävleborg, SNI-text, storleksklass). Dumpa inte SNI.
+3. scb_get_category_values med query/limit om du behöver mer av en tabell. includeAll bara när tabellen är liten.
 4. Gissa inte namn. "Län" är AE; "Säteslän" är JE. "Bygg" i företagsnamn är inte SNI.
-5. Operatorer är SCB-strängar (t.ex. Innehaller), inte engelska Contains/Equals.
+5. Operatorer är SCB-enum (Innehaller, ArLikaMed, …), inte engelska Contains/Equals. branchLevel = Branschniva, bara på bransch.
 6. Metadata cacheas i processen (timmar). Använd bypassCache bara för live-kontroller.`;
 }
 
@@ -65,7 +65,7 @@ Gör så här — utan att paginera och utan nya blinda SCB-prober i kaskad:
 3. Lägg på saknade dimensioner i ungefär denna ordning:
    - status: ${status}
    - geografi: ${geo}
-   - SNI/bransch via kodtabell (namn "Bygg" ≠ SNI) och ev. branchLevel
+   - SNI/bransch via scb_lookup_codes (namn "Bygg" ≠ SNI) och ev. branchLevel (Branschniva)
    - Storleksklass Anställda (inte AnstSME om frågan gäller storleksklass)
    - namnvariabel med operator Innehaller bara om användaren vill ha namnträff
 4. Anropa ${countTool} efter varje smalning. Hämta först när count≤2000.

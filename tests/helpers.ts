@@ -31,13 +31,85 @@ export function textResponse(status: number, body: string): Response {
   return new Response(body, { status });
 }
 
-export function createTestClient(fetchImpl: FetchLike): ScbClient {
+export function createTestClient(fetchImpl: FetchLike, extras: { bypassMetadataCache?: boolean } = {}): ScbClient {
   return new ScbClient({
     baseUrl: "https://privateapi.scb.se/nv0101/v1/sokpavar",
     auth: testAuth(),
     fetch: fetchImpl,
     skipCertLoad: true,
     logLevel: "error",
-    bypassMetadataCache: false,
+    bypassMetadataCache: extras.bypassMetadataCache ?? false,
   });
+}
+
+export type MockCatalogSpec = {
+  categories?: Record<"company" | "workplace", string[]>;
+  variables?: Record<"company" | "workplace", string[]>;
+  tables?: Record<string, Array<{ code: string; label: string }>>;
+};
+
+export function catalogFetch(spec: MockCatalogSpec): FetchLike {
+  const categories = spec.categories ?? {
+    company: ["Företagsstatus", "Registreringsstatus", "Säteslän", "Säteskommun", "Bransch", "Storleksklass Anställda"],
+    workplace: ["Arbetsställestatus", "Län", "Kommun", "Bransch", "Storleksklass Anställda"],
+  };
+  const variables = spec.variables ?? {
+    company: ["Företagsnamn", "Firma"],
+    workplace: ["Benämning"],
+  };
+  const tables = spec.tables ?? {
+    Företagsstatus: [
+      { code: "1", label: "verksam" },
+      { code: "0", label: "aldrig verksam" },
+      { code: "9", label: "ej verksam" },
+    ],
+    Registreringsstatus: [{ code: "1", label: "skatteregistrerad" }],
+    Arbetsställestatus: [{ code: "1", label: "verksam" }],
+    Säteslän: [{ code: "21", label: "Gävleborgs län" }, { code: "01", label: "Stockholms län" }],
+    Län: [{ code: "21", label: "Gävleborgs län" }, { code: "01", label: "Stockholms län" }],
+    Säteskommun: [{ code: "2180", label: "Gävle" }],
+    Kommun: [{ code: "2180", label: "Gävle" }],
+    "Storleksklass Anställda": [
+      { code: "4", label: "10-19 anställda" },
+      { code: "5", label: "20-49 anställda" },
+    ],
+    Bransch: [
+      { code: "F", label: "Byggverksamhet" },
+      { code: "41", label: "Byggande av hus" },
+      { code: "62010", label: "Dataprogrammering" },
+    ],
+  };
+
+  return async (url, init) => {
+    const path = new URL(url).pathname;
+    const objectType = path.includes("/ae/") ? "workplace" : "company";
+    if (path.includes("koptakategorier")) {
+      return jsonResponse(200, {
+        Kategorier: categories[objectType].map((name) => ({ Kategori: name })),
+      });
+    }
+    if (path.includes("koptavariabler") || path.endsWith("/variabler")) {
+      return jsonResponse(200, {
+        Variabler: variables[objectType].map((name) => ({ Variabel: name })),
+      });
+    }
+    if (path.includes("kodtabell")) {
+      const body = init.body ? (JSON.parse(init.body) as { Kategori?: string }) : {};
+      const category = body.Kategori ?? "";
+      if (objectType === "company" && (category === "Län" || category === "Kommun")) {
+        return jsonResponse(400, { message: "Okänd kategori" });
+      }
+      if (objectType === "workplace" && category.startsWith("Sätes")) {
+        return jsonResponse(400, { message: "Okänd kategori" });
+      }
+      const rows = tables[category];
+      if (!rows) {
+        return jsonResponse(400, { message: "Okänd kategori" });
+      }
+      return jsonResponse(200, {
+        Koder: rows.map((row) => ({ Kod: row.code, Text: row.label })),
+      });
+    }
+    return jsonResponse(200, []);
+  };
 }

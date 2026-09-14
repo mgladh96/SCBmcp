@@ -1,9 +1,12 @@
-import { localRateLimited, mapHttpError, queryTooBroad, ScbError } from "../domain/errors.js";
+import { localRateLimited, mapHttpError, queryTooBroad, ScbError, unknownOperatorError, withCatalogHints } from "../domain/errors.js";
 import { createLogger, type LogLevel } from "../log.js";
 import { apiIdHeaders, createScbDispatcher, type ScbAuthConfig, validateCertConfig } from "./auth.js";
 import { TtlCache } from "./cache.js";
+import { lookupCategoryGroups, searchCodeTables, type CodeLookupResult } from "./code-lookup.js";
 import { countPath, endpointsFor, searchPath } from "./endpoints.js";
+import { isAllowedOperator } from "./operators.js";
 import {
+  extractMetadataItems,
   parseCountResponse,
   parseListResponse,
   parseSearchResponse,
@@ -12,6 +15,7 @@ import {
 } from "./payload.js";
 import { SlidingWindowRateLimiter } from "./rate-limit.js";
 import type { ScbFilters } from "./schemas.js";
+import { cheapSampleCategoryNames, compactSchemaSummary, type SchemaSummary } from "./schema-summary.js";
 import {
   COUNT_CACHE_TTL_MS,
   layoutFor,
@@ -165,7 +169,100 @@ export class ScbClient {
     return this.search("workplace", filters, "scb_search_workplaces");
   }
 
+  async schemaSummary(objectType: ObjectType, options: MetadataCallOptions = {}): Promise<SchemaSummary> {
+    const categoriesRaw = await this.listCategories(objectType, false, options);
+    const variablesRaw = await this.listVariables(objectType, false, options);
+    const codeTables = new Map<string, unknown>();
+    for (const name of cheapSampleCategoryNames(categoriesRaw)) {
+      try {
+        codeTables.set(name, await this.getCategoryValues(objectType, name, options));
+      } catch (error) {
+        if (error instanceof ScbError && error.code === "SCB_RATE_LIMITED") {
+          break;
+        }
+      }
+    }
+    return compactSchemaSummary(objectType, categoriesRaw, variablesRaw, codeTables);
+  }
+
+  async lookupCodes(
+    objectType: ObjectType,
+    query: string,
+    options: MetadataCallOptions & { category?: string | undefined; limit?: number | undefined } = {},
+  ): Promise<CodeLookupResult> {
+    const categoriesRaw = await this.listCategories(objectType, false, options);
+    const groups = lookupCategoryGroups(categoriesRaw, options.category);
+    const tables: Array<{ category: string; raw: unknown }> = [];
+    let last: CodeLookupResult = {
+      query,
+      objectType,
+      matches: [],
+      total: 0,
+      returned: 0,
+    };
+    for (const group of groups) {
+      for (const category of group) {
+        try {
+          tables.push({ category, raw: await this.getCategoryValues(objectType, category, options) });
+        } catch (error) {
+          if (options.category) {
+            throw error;
+          }
+          if (error instanceof ScbError && error.code === "SCB_RATE_LIMITED") {
+            if (last.matches.length > 0) {
+              return last;
+            }
+            throw error;
+          }
+        }
+      }
+      last = searchCodeTables(objectType, query, tables, options.limit);
+      if (last.matches.length > 0) {
+        return last;
+      }
+    }
+    return last;
+  }
+
+  cachedCategoryNames(objectType: ObjectType): string[] | undefined {
+    return this.cachedMetadataNames(`listCategories:${layoutFor(objectType)}:0`);
+  }
+
+  cachedVariableNames(objectType: ObjectType): string[] | undefined {
+    return this.cachedMetadataNames(`listVariables:${layoutFor(objectType)}:0`);
+  }
+
+  private cachedMetadataNames(key: string): string[] | undefined {
+    const raw = this.metadataCache.get(key);
+    if (raw === undefined) {
+      return undefined;
+    }
+    return extractMetadataItems(raw)
+      .map((item) => item.name)
+      .filter((name) => name.length > 0);
+  }
+
+  private assertKnownOperators(filters: ScbFilters): void {
+    for (const item of filters.variables) {
+      if (!isAllowedOperator(item.operator)) {
+        throw unknownOperatorError(item.operator);
+      }
+    }
+  }
+
+  private enrichError(error: ScbError, objectType?: ObjectType): ScbError {
+    if (!objectType) {
+      return error;
+    }
+    return withCatalogHints(error, {
+      objectType,
+      categoryNames: this.cachedCategoryNames(objectType),
+      variableNames: this.cachedVariableNames(objectType),
+    });
+  }
+
   private async count(objectType: ObjectType, filters: ScbFilters, tool: string): Promise<number> {
+    this.assertKnownOperators(filters);
     const cacheKey = countCacheKey(objectType, filters);
     const cached = this.countCache.get(cacheKey);
     if (cached !== undefined) {
@@ -206,6 +303,8 @@ export class ScbClient {
         objectType,
         layout: layoutFor(objectType),
         appliedFilters: filters,
+        catalogCategoryNames: this.cachedCategoryNames(objectType),
+        catalogVariableNames: this.cachedVariableNames(objectType),
       });
     }
     if (count === 0) {
@@ -345,7 +444,7 @@ export class ScbClient {
           ? { retryAfterMs: mapped.details.retryAfterMs }
           : {}),
       });
-      throw mapped;
+      throw this.enrichError(mapped, options.objectType);
     }
   }
 }

@@ -8,12 +8,14 @@ Den är bara ett dataåtkomstlager för det API:et. Den söker inte i andra käl
 
 En agent kan:
 
-1. Inspektera kategorier och variabler som det konfigurerade SCB-kontot får använda
-2. Hämta kodtabeller för en kategori
-3. Räkna företag (JE, juridisk enhet)
-4. Hämta företag när antalet träffar är ≤ 2 000
-5. Räkna arbetsställen (AE, arbetsställe)
-6. Hämta arbetsställen
+1. Hämta en kompakt schemasammanfattning för JE eller AE (`scb_schema_summary`)
+2. Söka i cacheade kodtabeller (`scb_lookup_codes`) — t.ex. Gävleborg → Län/`21`
+3. Inspektera kategorier och variabler som det konfigurerade SCB-kontot får använda
+4. Hämta kodtabeller för en kategori (sökbar, trunkerad; full dump bara vid explicit begäran)
+5. Räkna företag (JE, juridisk enhet)
+6. Hämta företag när antalet träffar är ≤ 2 000
+7. Räkna arbetsställen (AE, arbetsställe)
+8. Hämta arbetsställen
 
 JE och AE anges alltid explicit. De döljs inte bakom generiska ”provider”-typer.
 
@@ -149,15 +151,18 @@ SCB-klientcertifikatet autentiserar den här processen **mot SCB**. En separat d
 
 | Verktyg | Syfte |
 | --- | --- |
+| `scb_schema_summary` | Kompakt katalog för `company` (JE) eller `workplace` (AE): kind, serialisering, motparter, operatorer, filtertips. Ingen SNI-dump. |
+| `scb_lookup_codes` | Sök i cacheade kodtabeller. `{ matches: [{ objectType, category, code, label, kind }] }`. |
+| `scb_filter_hints` | Frågeklass → rekommenderade kategorier/variabler/standardstatus (statisk tabell). |
 | `scb_list_categories` | Kategorier för `company` (JE) eller `workplace` (AE). Valfri `includeCodeTables`. Svar: `{ items, raw }` (även `categories` = raw). |
-| `scb_get_category_values` | Kodtabell för en SCB-kategori. Svar: `{ items, raw }`. |
+| `scb_get_category_values` | Kodtabell för en SCB-kategori. Valfri `query` + `limit` (standard ~50). Svar: `{ total, returned, items }`. Full dump bara med `includeAll` eller `limit=0`. |
 | `scb_list_variables` | Variabler för kontot. Valfri `includeValueMetadata`. Svar: `{ items, raw }`. |
 | `scb_count_companies` | Räkna JE-träffar |
 | `scb_search_companies` | Hämta JE-träffar (räknar först; avvisar > 2 000; hoppar `hamta` vid count 0) |
 | `scb_count_workplaces` | Räkna AE-träffar |
 | `scb_search_workplaces` | Hämta AE-träffar (samma count-regler som JE) |
 
-MCP-prompts (ingen extra SCB-trafik): `scb_explore_schema`, `scb_count_then_fetch`, `scb_handle_too_broad`. Server-`instructions` upprepar arbetsflödet vid initialize.
+MCP-prompts (ingen extra SCB-trafik): `scb_explore_schema`, `scb_count_then_fetch`, `scb_handle_too_broad`. MCP-resurs: `scb://operators`. Server-`instructions` upprepar arbetsflödet vid initialize.
 
 Filterkontrakt (nära SCB, inte ett DSL för naturligt språk):
 
@@ -177,14 +182,34 @@ Filterkontrakt (nära SCB, inte ett DSL för naturligt språk):
 }
 ```
 
-Använd **kategori- och variabelnamn som SCB returnerar dem** från metadataverktygen (`items[].name`). Hårdkoda inte ett eget schema. Operatorer skickas vidare till SCB som **SCB-strängar** (t.ex. `Innehaller`, inte `Contains`).
+Använd **kategori- och variabelnamn som SCB returnerar dem** från `scb_schema_summary` eller listverktygen (`items[].name`). Hårdkoda inte ett eget schema.
+
+### Operatorer (allowlist)
+
+Variabelfilter accepterar bara dessa SCB-operatorer (svenska namn, inte `Contains`/`Equals`):
+
+| Operator | Arity | Kommentar |
+| --- | --- | --- |
+| `Innehaller` | 1 | Delsträng. Belagd i repo/exampleJe. |
+| `ArLikaMed` | 1 | Exakt lika. |
+| `BorjarPa` | 1 | Prefix. |
+| `Mellan` | 2 | Intervall (`value` + `value2`). |
+| `FranOchMed` | 1 | Nedre gräns. |
+| `TillOchMed` | 1 | Övre gräns. |
+| `Finns` | 0 | Värde finns. |
+| `FinnsInte` | 0 | Värde saknas. |
+
+`Innehaller` är verifierad mot exempel i den här kodbasen. Övriga namn är en **konservativ allowlist** utifrån SCB-hjälpexempel / kända sokpavar-klienter. **Verifiera mot** [`/help/exampleJe`](https://privateapi.scb.se/nv0101/v1/sokpavar/help/exampleJe) och [`/help/exampleAe`](https://privateapi.scb.se/nv0101/v1/sokpavar/help/exampleAe) (kräver klientcertifikat) innan listan behandlas som uttömmande. Okänd operator → `SCB_INVALID_QUERY` med `details.allowedOperators`.
+
+`branchLevel` på en kategorifilterpost mappas till SCB `Branschniva`. Det är bara meningsfullt på bransch/SNI-kategorier; servern varnar om det sätts på status, geografi eller storlek. Toppnivåstatus ignorerar fältet.
 
 Anti-mönster:
 
-- Namn som innehåller `"Bygg"` är inte SNI — slå upp branschkategorin i kodtabellen.
+- Namn som innehåller `"Bygg"` är inte SNI — slå upp med `scb_lookup_codes`.
 - Gävleborg som belägenhet är AE-kategorin `Län`, inte JE-säte (`Säteslän`) om användaren inte menar säte.
 - `AnstSME` är inte samma sak som kategorin **Storleksklass Anställda**.
 - Tomma `categories` och `variables` är giltiga men ger `warning` (obegränsad population).
+- `includeCodeTables=true` dumpa inte SNI i agentkontexten.
 
 Sökverktygen returnerar SCB-fältnamn som de tas emot, inklusive `Reklam` när SCB inkluderar det. Servern tar inte bort reklamspärrar och är inte ett sätt att kringgå dem.
 
@@ -194,11 +219,11 @@ Användare: ”Hitta aktiva byggföretag i Gävleborg med 10–49 anställda.”
 
 **Agenten** (inte den här servern) bör:
 
-1. `scb_list_categories` / `scb_list_variables` för `objectType: "company"` (och arbetsställen om frågan egentligen gäller AE)
-2. `scb_get_category_values` för SNI/bransch, län, företagsstatus, storleksklass för anställda och andra nödvändiga kategorier
-3. `scb_count_companies` med de koderna
+1. `scb_schema_summary` för `objectType: "workplace"` (belägenhet) eller `"company"` (säte) — inte `includeCodeTables: true`
+2. `scb_lookup_codes` med `query: "Gävleborg"`, `"bygg"`, `"10-49"`, `"verksam"`
+3. `scb_count_workplaces` / `scb_count_companies` med de koderna
 4. Om count är 0, stanna (search hoppar över `hamta*`). Om count > 2000, begränsa filtren — paginera inte. Om count ≤ 2000, fortsätt
-5. `scb_search_companies` med samma filter. Search räknar internt och **återanvänder** en nylig count (ca 5 s), så extra count precis före search behövs inte.
+5. `scb_search_*` med samma filter. Search räknar internt och **återanvänder** en nylig count (ca 5 s), så extra count precis före search behövs inte.
 6. Resonera utifrån JSON:en som SCB returnerar
 
 Gävleborg är ett **län** på arbetsställe i SCB:s variabelbeskrivning; säteslän är motsvarigheten på företagsnivå. Agenten måste hämta det från SCB-metadata, inte från den här README:n.
@@ -233,11 +258,11 @@ Om count > 2 000 returnerar verktygen:
 }
 ```
 
-`candidateNarrowingDimensions` är en statisk lista per JE/AE (status, geografi, SNI, storleksklass, namnvariabel) — inga extra SCB-anrop.
+`candidateNarrowingDimensions` är per JE/AE (status, geografi, SNI, storleksklass, namnvariabel). När katalogen är cachead används **faktiska kategorinamn** från `koptakategorier`, inte bara statiska engelska strängar.
 
 Lokalt rate limit (10 / 10 s) **väntar inte tyst**. Agenten får `SCB_RATE_LIMITED` med `nextAction: "retry_same"` och `details.retryAfterMs`. HTTP 429 från SCB mappar samma kod. Loggar kan innehålla `waitedMs` (0 när anropet avvisas lokalt).
 
-Kategorier, variabler och kodtabeller cacheas i processen i flera timmar (SCB uppdaterar över natten). `bypassCache` på metadataverktygen eller `SCB_METADATA_CACHE_BYPASS=true` tvingar live-anrop.
+Kategorier, variabler och kodtabeller cacheas i processen i flera timmar (SCB uppdaterar över natten). `bypassCache` på metadataverktygen eller `SCB_METADATA_CACHE_BYPASS=true` tvingar live-anrop. `scb_schema_summary` och `scb_lookup_codes` återanvänder samma cache.
 
 ## Köra tester
 
@@ -262,10 +287,10 @@ Maskinläsbar JSON. `code`-strängarna är oförändrade. Dessutom: `nextAction`
 - `SCB_AUTH_ERROR` — `abort_unanswerable` (operatör/certifikat)
 - `SCB_RATE_LIMITED` — `retry_same`, `details.retryAfterMs`
 - `SCB_UNAVAILABLE` — `retry_same`
-- `SCB_INVALID_QUERY` — `retry_modified` (kolla listverktygen / operatorer)
-- `SCB_UNKNOWN_CATEGORY` — `retry_modified`, `scb_list_categories`
-- `SCB_UNKNOWN_VARIABLE` — `retry_modified`, `scb_list_variables`
-- `QUERY_TOO_BROAD` — `retry_modified`, smalna filter, paginera inte
+- `SCB_INVALID_QUERY` — `retry_modified` (kolla listverktygen / operatorer). Ogiltig operator ger `details.allowedOperators`
+- `SCB_UNKNOWN_CATEGORY` — `retry_modified`, `nearestNames[]` + ev. `layoutHint` när katalogen är cachead
+- `SCB_UNKNOWN_VARIABLE` — `retry_modified`, `nearestNames[]` när katalogen är cachead
+- `QUERY_TOO_BROAD` — `retry_modified`, smalna filter, paginera inte. `candidateNarrowingDimensions` använder katalognamn när de finns
 - `SCB_RESPONSE_VALIDATION_ERROR` — `abort_unanswerable`
 
 ## Live-verifiering mot SCB

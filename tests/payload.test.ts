@@ -23,7 +23,7 @@ describe("SCB query payload", () => {
         categories: [
           { category: "Företagsstatus", values: ["1"] },
           { category: "Registreringsstatus", values: ["1"] },
-          { category: "SätesKommun", values: ["0180"] },
+          { category: "SätesKommun", values: ["0180"], branchLevel: 1 },
         ],
         variables: [
           { variable: "Firma", operator: "Innehaller", value: "ask", value2: "" },
@@ -32,7 +32,7 @@ describe("SCB query payload", () => {
     ).toEqual({
       Företagsstatus: "1",
       Registreringsstatus: "1",
-      Kategorier: [{ Kategori: "SätesKommun", Kod: ["0180"] }],
+      Kategorier: [{ Kategori: "SätesKommun", Kod: ["0180"], Branschniva: 1 }],
       variabler: [
         { Variabel: "Firma", Operator: "Innehaller", Varde1: "ask", Varde2: "" },
       ],
