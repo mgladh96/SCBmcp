@@ -24,6 +24,7 @@ async function main(): Promise<void> {
   const httpServer = createSseHttpServer({
     createMcpServer: () => createMcpServer(createToolHandlers(scb, log)),
     log,
+    ...(config.authToken ? { authToken: config.authToken } : {}),
   });
 
   await new Promise<void>((resolve, reject) => {
@@ -34,7 +35,11 @@ async function main(): Promise<void> {
   const sseUrl = new URL(`http://127.0.0.1:${port}/sse`);
 
   const client = new Client({ name: "scb-sse-smoke", version: "0.1.0" });
-  const transport = new SSEClientTransport(sseUrl);
+  const transport = new SSEClientTransport(sseUrl, {
+    ...(config.authToken
+      ? { requestInit: { headers: { Authorization: `Bearer ${config.authToken}` } } }
+      : {}),
+  });
   await client.connect(transport);
 
   const tools = await client.listTools();

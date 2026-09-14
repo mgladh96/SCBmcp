@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { loadConfig, loadEnvFiles } from "./config/env.js";
+import { loadConfig, loadEnvFiles, McpConfigError } from "./config/env.js";
 import { ScbError } from "./domain/errors.js";
 import { createLogger } from "./log.js";
 import { createSseHttpServer } from "./mcp/http.js";
@@ -24,6 +24,7 @@ async function main(): Promise<void> {
   const httpServer = createSseHttpServer({
     createMcpServer: () => createMcpServer(handlers),
     log,
+    ...(config.authToken ? { authToken: config.authToken } : {}),
   });
 
   await new Promise<void>((resolve, reject) => {
@@ -36,6 +37,7 @@ async function main(): Promise<void> {
     endpoint: `${url}/sse`,
     host: config.host,
     port: config.port,
+    auth: config.authToken ? "required" : "disabled",
   });
 }
 
@@ -43,7 +45,9 @@ main().catch((error: unknown) => {
   const payload =
     error instanceof ScbError
       ? error.toJSON()
-      : { code: "SCB_UNAVAILABLE", message: error instanceof Error ? error.message : "startup failed" };
+      : error instanceof McpConfigError
+        ? { code: error.code, message: error.message }
+        : { code: "SCB_UNAVAILABLE", message: error instanceof Error ? error.message : "startup failed" };
   process.stderr.write(`${JSON.stringify({ ts: new Date().toISOString(), level: "error", ...payload })}\n`);
   process.exit(1);
 });

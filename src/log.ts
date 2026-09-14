@@ -11,9 +11,10 @@ type LogFields = {
   host?: string;
   port?: number;
   sessionId?: string;
+  auth?: string;
 };
 
-const SENSITIVE_KEY = /password|passphrase|pfx|private.?key|cert(?:ificate)?/i;
+const SENSITIVE_KEY = /password|passphrase|pfx|private.?key|cert(?:ificate)?|token|secret|authorization/i;
 
 export function createLogger(level: LogLevel = "info") {
   const rank = { debug: 10, info: 20, error: 30 };
