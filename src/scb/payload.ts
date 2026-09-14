@@ -84,6 +84,102 @@ export function parseListResponse(payload: unknown): unknown {
   return payload;
 }
 
+const METADATA_ARRAY_KEYS = [
+  "Kategorier",
+  "kategorier",
+  "Variabler",
+  "variabler",
+  "Koder",
+  "koder",
+  "Varden",
+  "varden",
+  "Kodtabell",
+  "kodtabell",
+  "items",
+];
+
+const METADATA_NAME_KEYS = ["Kategori", "Variabel", "Namn", "name", "Kod", "kod", "Text", "text"];
+
+export type MetadataItem = {
+  name: string;
+  [key: string]: unknown;
+};
+
+export type MetadataEnvelope = {
+  objectType: "company" | "workplace";
+  items: MetadataItem[];
+  raw: unknown;
+};
+
+export function toMetadataEnvelope(
+  objectType: "company" | "workplace",
+  raw: unknown,
+): MetadataEnvelope {
+  return {
+    objectType,
+    items: extractMetadataItems(raw),
+    raw,
+  };
+}
+
+export function extractMetadataItems(raw: unknown): MetadataItem[] {
+  return extractMetadataRows(raw).map(toMetadataItem);
+}
+
+function extractMetadataRows(raw: unknown): unknown[] {
+  if (raw == null) {
+    return [];
+  }
+  if (Array.isArray(raw)) {
+    return raw;
+  }
+  if (typeof raw === "object") {
+    const record = raw as Record<string, unknown>;
+    for (const key of METADATA_ARRAY_KEYS) {
+      const value = record[key];
+      if (Array.isArray(value)) {
+        return value;
+      }
+    }
+    for (const value of Object.values(record)) {
+      if (Array.isArray(value) && value.length > 0 && isLikelyMetadataRow(value[0])) {
+        return value;
+      }
+    }
+  }
+  return [];
+}
+
+function isLikelyMetadataRow(value: unknown): boolean {
+  if (typeof value === "string") {
+    return value.length > 0;
+  }
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return METADATA_NAME_KEYS.some((key) => typeof record[key] === "string");
+}
+
+function toMetadataItem(row: unknown): MetadataItem {
+  if (typeof row === "string") {
+    return { name: row };
+  }
+  if (row && typeof row === "object") {
+    const record = row as Record<string, unknown>;
+    let name = "";
+    for (const key of METADATA_NAME_KEYS) {
+      const value = record[key];
+      if (typeof value === "string" && value.length > 0) {
+        name = value;
+        break;
+      }
+    }
+    return { name, ...record };
+  }
+  return { name: "" };
+}
+
 export function parseSearchResponse(payload: unknown): unknown[] {
   if (Array.isArray(payload)) {
     return payload;

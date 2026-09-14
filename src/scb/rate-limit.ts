@@ -1,5 +1,7 @@
 import { RATE_LIMIT_MAX_CALLS, RATE_LIMIT_WINDOW_MS } from "./types.js";
 
+export type RateLimitDecision = { ok: true } | { ok: false; retryAfterMs: number };
+
 export class SlidingWindowRateLimiter {
   private readonly timestamps: number[] = [];
 
@@ -7,24 +9,23 @@ export class SlidingWindowRateLimiter {
     private readonly maxCalls = RATE_LIMIT_MAX_CALLS,
     private readonly windowMs = RATE_LIMIT_WINDOW_MS,
     private readonly now: () => number = () => Date.now(),
-    private readonly sleep: (ms: number) => Promise<void> = delay,
   ) {}
 
-  async acquire(): Promise<void> {
-    for (;;) {
-      const now = this.now();
-      this.prune(now);
-      if (this.timestamps.length < this.maxCalls) {
-        this.timestamps.push(now);
-        return;
-      }
-      const oldest = this.timestamps[0];
-      if (oldest === undefined) {
-        this.timestamps.push(now);
-        return;
-      }
-      await this.sleep(this.windowMs - (now - oldest) + 1);
+  /**
+   * Consume one slot if the window has capacity. Does not sleep.
+   * Agents should see SCB_RATE_LIMITED + retryAfterMs instead of a silent hang.
+   */
+  tryAcquire(): RateLimitDecision {
+    const now = this.now();
+    this.prune(now);
+    if (this.timestamps.length < this.maxCalls) {
+      this.timestamps.push(now);
+      return { ok: true };
     }
+    const oldest = this.timestamps[0];
+    const retryAfterMs =
+      oldest === undefined ? 1 : Math.max(1, this.windowMs - (now - oldest) + 1);
+    return { ok: false, retryAfterMs };
   }
 
   get outstanding(): number {
@@ -37,8 +38,4 @@ export class SlidingWindowRateLimiter {
       this.timestamps.shift();
     }
   }
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

@@ -72,6 +72,7 @@ Hjälpsidor (certifikat krävs):
 | `MCP_PORT` | nej | HTTP-port. Standard `3000`. |
 | `MCP_AUTH_TOKEN` | rekommenderas | Delad hemlighet för MCP HTTP/SSE (`/sse`, `/messages`). Obligatorisk när `MCP_HOST` inte är loopback. |
 | `SCB_LIVE_TESTS` | nej | Sätt till `true` endast när du kör live-tester mot SCB |
+| `SCB_METADATA_CACHE_BYPASS` | nej | `true` hoppar över processcachen för kategorier, variabler och kodtabeller |
 
 Kopiera `.env.example`. Lägg inte hemligheter i git.
 
@@ -148,13 +149,15 @@ SCB-klientcertifikatet autentiserar den här processen **mot SCB**. En separat d
 
 | Verktyg | Syfte |
 | --- | --- |
-| `scb_list_categories` | Kategorier för `company` (JE) eller `workplace` (AE). Valfri `includeCodeTables`. |
-| `scb_get_category_values` | Kodtabell för en SCB-kategori |
-| `scb_list_variables` | Variabler för kontot. Valfri `includeValueMetadata`. |
+| `scb_list_categories` | Kategorier för `company` (JE) eller `workplace` (AE). Valfri `includeCodeTables`. Svar: `{ items, raw }` (även `categories` = raw). |
+| `scb_get_category_values` | Kodtabell för en SCB-kategori. Svar: `{ items, raw }`. |
+| `scb_list_variables` | Variabler för kontot. Valfri `includeValueMetadata`. Svar: `{ items, raw }`. |
 | `scb_count_companies` | Räkna JE-träffar |
-| `scb_search_companies` | Hämta JE-träffar (räknar först; avvisar > 2 000) |
+| `scb_search_companies` | Hämta JE-träffar (räknar först; avvisar > 2 000; hoppar `hamta` vid count 0) |
 | `scb_count_workplaces` | Räkna AE-träffar |
-| `scb_search_workplaces` | Hämta AE-träffar (räknar först; avvisar > 2 000) |
+| `scb_search_workplaces` | Hämta AE-träffar (samma count-regler som JE) |
+
+MCP-prompts (ingen extra SCB-trafik): `scb_explore_schema`, `scb_count_then_fetch`, `scb_handle_too_broad`. Server-`instructions` upprepar arbetsflödet vid initialize.
 
 Filterkontrakt (nära SCB, inte ett DSL för naturligt språk):
 
@@ -174,7 +177,14 @@ Filterkontrakt (nära SCB, inte ett DSL för naturligt språk):
 }
 ```
 
-Använd **kategori- och variabelnamn som SCB returnerar dem** från metadataverktygen. Hårdkoda inte ett eget schema. Operatorer skickas vidare till SCB; kontrollera tillåtna operatorer på SCB:s hjälpsidor.
+Använd **kategori- och variabelnamn som SCB returnerar dem** från metadataverktygen (`items[].name`). Hårdkoda inte ett eget schema. Operatorer skickas vidare till SCB som **SCB-strängar** (t.ex. `Innehaller`, inte `Contains`).
+
+Anti-mönster:
+
+- Namn som innehåller `"Bygg"` är inte SNI — slå upp branschkategorin i kodtabellen.
+- Gävleborg som belägenhet är AE-kategorin `Län`, inte JE-säte (`Säteslän`) om användaren inte menar säte.
+- `AnstSME` är inte samma sak som kategorin **Storleksklass Anställda**.
+- Tomma `categories` och `variables` är giltiga men ger `warning` (obegränsad population).
 
 Sökverktygen returnerar SCB-fältnamn som de tas emot, inklusive `Reklam` när SCB inkluderar det. Servern tar inte bort reklamspärrar och är inte ett sätt att kringgå dem.
 
@@ -187,8 +197,8 @@ Användare: ”Hitta aktiva byggföretag i Gävleborg med 10–49 anställda.”
 1. `scb_list_categories` / `scb_list_variables` för `objectType: "company"` (och arbetsställen om frågan egentligen gäller AE)
 2. `scb_get_category_values` för SNI/bransch, län, företagsstatus, storleksklass för anställda och andra nödvändiga kategorier
 3. `scb_count_companies` med de koderna
-4. Om count är 0, stanna. Om count > 2000, begränsa filtren. Om count ≤ 2000, fortsätt
-5. `scb_search_companies`
+4. Om count är 0, stanna (search hoppar över `hamta*`). Om count > 2000, begränsa filtren — paginera inte. Om count ≤ 2000, fortsätt
+5. `scb_search_companies` med samma filter. Search räknar internt och **återanvänder** en nylig count (ca 5 s), så extra count precis före search behövs inte.
 6. Resonera utifrån JSON:en som SCB returnerar
 
 Gävleborg är ett **län** på arbetsställe i SCB:s variabelbeskrivning; säteslän är motsvarigheten på företagsnivå. Agenten måste hämta det från SCB-metadata, inte från den här README:n.
@@ -208,15 +218,26 @@ Om count > 2 000 returnerar verktygen:
   "code": "QUERY_TOO_BROAD",
   "message": "...",
   "retryable": false,
+  "nextAction": "retry_modified",
+  "nextTools": ["scb_count_companies", "scb_list_categories", "scb_get_category_values"],
   "details": {
     "count": 8432,
     "maxResults": 2000,
-    "suggestion": "Narrow the query using additional SCB filters."
+    "objectType": "company",
+    "layout": "je",
+    "appliedFilters": { "categories": [], "variables": [] },
+    "candidateNarrowingDimensions": [],
+    "doNotPaginate": true,
+    "suggestion": "Smalna frågan med fler SCB-kategorier (status, geografi, SNI, storleksklass). Paginera inte."
   }
 }
 ```
 
-Klienten begränsar också utgående anrop så att de håller sig inom 10 / 10s.
+`candidateNarrowingDimensions` är en statisk lista per JE/AE (status, geografi, SNI, storleksklass, namnvariabel) — inga extra SCB-anrop.
+
+Lokalt rate limit (10 / 10 s) **väntar inte tyst**. Agenten får `SCB_RATE_LIMITED` med `nextAction: "retry_same"` och `details.retryAfterMs`. HTTP 429 från SCB mappar samma kod. Loggar kan innehålla `waitedMs` (0 när anropet avvisas lokalt).
+
+Kategorier, variabler och kodtabeller cacheas i processen i flera timmar (SCB uppdaterar över natten). `bypassCache` på metadataverktygen eller `SCB_METADATA_CACHE_BYPASS=true` tvingar live-anrop.
 
 ## Köra tester
 
@@ -236,16 +257,16 @@ pnpm test:live
 
 ## Fel
 
-Maskinläsbar JSON:
+Maskinläsbar JSON. `code`-strängarna är oförändrade. Dessutom: `nextAction` (`retry_same` | `retry_modified` | `abort_unanswerable`) och ofta `nextTools`, plus `details.unknownName` / `details.field` när det går.
 
-- `SCB_AUTH_ERROR`
-- `SCB_RATE_LIMITED`
-- `SCB_UNAVAILABLE`
-- `SCB_INVALID_QUERY`
-- `SCB_UNKNOWN_CATEGORY`
-- `SCB_UNKNOWN_VARIABLE`
-- `QUERY_TOO_BROAD`
-- `SCB_RESPONSE_VALIDATION_ERROR`
+- `SCB_AUTH_ERROR` — `abort_unanswerable` (operatör/certifikat)
+- `SCB_RATE_LIMITED` — `retry_same`, `details.retryAfterMs`
+- `SCB_UNAVAILABLE` — `retry_same`
+- `SCB_INVALID_QUERY` — `retry_modified` (kolla listverktygen / operatorer)
+- `SCB_UNKNOWN_CATEGORY` — `retry_modified`, `scb_list_categories`
+- `SCB_UNKNOWN_VARIABLE` — `retry_modified`, `scb_list_variables`
+- `QUERY_TOO_BROAD` — `retry_modified`, smalna filter, paginera inte
+- `SCB_RESPONSE_VALIDATION_ERROR` — `abort_unanswerable`
 
 ## Live-verifiering mot SCB
 

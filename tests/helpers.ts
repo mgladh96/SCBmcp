@@ -38,5 +38,6 @@ export function createTestClient(fetchImpl: FetchLike): ScbClient {
     fetch: fetchImpl,
     skipCertLoad: true,
     logLevel: "error",
+    bypassMetadataCache: false,
   });
 }

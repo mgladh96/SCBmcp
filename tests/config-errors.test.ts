@@ -105,11 +105,34 @@ describe("HTTP error mapping", () => {
     expect(error.retryable).toBe(true);
   });
 
-  it("builds QUERY_TOO_BROAD details", () => {
-    const error = queryTooBroad(8432, 2000);
+  it("includes retryAfterMs on HTTP 429", () => {
+    const error = mapHttpError(429, "too many", { retryAfterMs: 3500 });
+    expect(error.toJSON()).toMatchObject({
+      code: "SCB_RATE_LIMITED",
+      nextAction: "retry_same",
+      details: { retryAfterMs: 3500, status: 429 },
+    });
+  });
+
+  it("builds QUERY_TOO_BROAD details with filters and narrowing dimensions", () => {
+    const error = queryTooBroad(8432, 2000, {
+      objectType: "company",
+      layout: "je",
+      appliedFilters: { categories: [{ category: "Företagsstatus", values: ["1"] }], variables: [] },
+    });
     expect(error.toJSON()).toMatchObject({
       code: "QUERY_TOO_BROAD",
-      details: { count: 8432, maxResults: 2000 },
+      nextAction: "retry_modified",
+      details: {
+        count: 8432,
+        maxResults: 2000,
+        objectType: "company",
+        layout: "je",
+        doNotPaginate: true,
+      },
     });
+    expect(error.details.candidateNarrowingDimensions).toEqual(
+      expect.arrayContaining([expect.objectContaining({ dimension: "geography" })]),
+    );
   });
 });
