@@ -1,0 +1,10 @@
+node_modules
+dist
+.env
+*.pfx
+*.p12
+coverage
+*.log
+.DS_Store
+scripts/.exampleJe.html
+scripts/.exampleAe.html

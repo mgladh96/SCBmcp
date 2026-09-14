@@ -1,0 +1,45 @@
+{
+  "name": "scb-foretagsregister-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for SCB Allmänna företagsregister (JE/AE).",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "scb-foretagsregister-mcp": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:live": "vitest run --config vitest.live.config.ts",
+    "verify:live": "tsx scripts/verify-live.ts",
+    "mcp:smoke": "tsx scripts/mcp-smoke.ts"
+  },
+  "keywords": [
+    "mcp",
+    "scb",
+    "foretagsregister"
+  ],
+  "license": "UNLICENSED",
+  "packageManager": "pnpm@10.15.0",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.18.0",
+    "undici": "^7.15.0",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.35.0",
+    "@types/node": "^22.18.0",
+    "eslint": "^9.35.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.43.0",
+    "vitest": "^3.2.4"
+  }
+}
