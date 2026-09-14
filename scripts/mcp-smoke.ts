@@ -49,7 +49,11 @@ async function main(): Promise<void> {
   });
   const listedText = JSON.parse(
     (listed.content[0] && listed.content[0].type === "text" ? listed.content[0].text : "{}") as string,
-  ) as { categories?: { Kategorier?: unknown[] }; objectType?: string };
+  ) as {
+    items?: unknown[];
+    categories?: { Kategorier?: unknown[] };
+    objectType?: string;
+  };
 
   process.stdout.write(
     `${JSON.stringify(
@@ -57,8 +61,9 @@ async function main(): Promise<void> {
         ok: listed.isError !== true,
         url: sseUrl.href,
         tools: tools.tools.map((tool) => tool.name),
+        prompts: (await client.listPrompts()).prompts.map((prompt) => prompt.name),
         listObjectType: listedText.objectType,
-        categoryCount: listedText.categories?.Kategorier?.length,
+        categoryCount: listedText.items?.length ?? listedText.categories?.Kategorier?.length,
       },
       null,
       2,

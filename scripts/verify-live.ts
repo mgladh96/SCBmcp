@@ -7,6 +7,9 @@ function summarize(value: unknown): { kind: string; size: number } {
   }
   if (value && typeof value === "object") {
     const record = value as Record<string, unknown>;
+    if (Array.isArray(record.items)) {
+      return { kind: "items", size: record.items.length };
+    }
     if (Array.isArray(record.Kategorier)) {
       return { kind: "categories", size: record.Kategorier.length };
     }

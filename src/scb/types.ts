@@ -4,6 +4,10 @@ export const SOURCE_LABEL = "SCB Allmänna företagsregister";
 export const MAX_RESULTS = 2000;
 export const RATE_LIMIT_MAX_CALLS = 10;
 export const RATE_LIMIT_WINDOW_MS = 10_000;
+/** SCB metadata is updated overnight; a multi-hour process cache is enough. */
+export const METADATA_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+/** Reuse a successful count inside search when the agent just counted the same filter. */
+export const COUNT_CACHE_TTL_MS = 5_000;
 
 export type ObjectType = "company" | "workplace";
 export type ScbLayout = "je" | "ae";

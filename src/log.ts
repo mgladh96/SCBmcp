@@ -12,6 +12,9 @@ type LogFields = {
   port?: number;
   sessionId?: string;
   auth?: string;
+  retryAfterMs?: number;
+  waitedMs?: number;
+  cacheHit?: boolean;
 };
 
 const SENSITIVE_KEY = /password|passphrase|pfx|private.?key|cert(?:ificate)?|token|secret|authorization/i;

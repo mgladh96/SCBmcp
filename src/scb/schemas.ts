@@ -22,19 +22,28 @@ export const scbFiltersSchema = z.object({
 
 export type ScbFilters = z.infer<typeof scbFiltersSchema>;
 
+export function isUnboundedFilters(filters: ScbFilters): boolean {
+  return filters.categories.length === 0 && filters.variables.length === 0;
+}
+
+const bypassCacheSchema = z.boolean().optional();
+
 export const listCategoriesInputSchema = z.object({
   objectType: objectTypeSchema,
   includeCodeTables: z.boolean().optional(),
+  bypassCache: bypassCacheSchema,
 });
 
 export const getCategoryValuesInputSchema = z.object({
   objectType: objectTypeSchema,
   category: z.string().min(1),
+  bypassCache: bypassCacheSchema,
 });
 
 export const listVariablesInputSchema = z.object({
   objectType: objectTypeSchema,
   includeValueMetadata: z.boolean().optional(),
+  bypassCache: bypassCacheSchema,
 });
 
 export const countCompaniesInputSchema = z.object({
