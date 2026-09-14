@@ -93,7 +93,7 @@ export const searchProjectionSchema = z.object({
     .array(z.string().min(1))
     .optional()
     .describe(
-      "Fältprojektion. Standard: identitet, namn, status, geografi, SNI/bransch, storleksklass, Reklam. Reklam strippas aldrig.",
+      "Fältprojektion i MCP efter hämtning. Standard: identitet, namn, status, geografi, SNI/bransch, storleksklass, Reklam. Reklam strippas aldrig. Minskar inte SCB-anropet — smalna filter och räkna först.",
     ),
   maxRows: z
     .number()
@@ -102,7 +102,7 @@ export const searchProjectionSchema = z.object({
     .max(MAX_SEARCH_MAX_ROWS)
     .optional()
     .describe(
-      `Max rader i MCP-svaret (standard ${DEFAULT_SEARCH_MAX_ROWS}, högst ${MAX_SEARCH_MAX_ROWS}). Trunkering sker i MCP efter SCB-hämtning; ingen SCB-paginering.`,
+      `Max rader i MCP-svaret (standard ${DEFAULT_SEARCH_MAX_ROWS}, högst ${MAX_SEARCH_MAX_ROWS}). SCB hämtar fortfarande hela mängden efter 2000-vakten; maxRows klipper bara agentvyn. Räkna och smalna filter först. Ingen SCB-paginering.`,
     ),
 });
 

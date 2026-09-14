@@ -7,7 +7,7 @@ import { explainQuery } from "../scb/explain.js";
 import { identityInvalidErrorDetails, normalizeIdentityInFilters } from "../scb/identity.js";
 import { SCB_OPERATOR_NAMES } from "../scb/operators.js";
 import { toMetadataEnvelope, truncateMetadataItems } from "../scb/payload.js";
-import { omittedFromCounts, projectSearchResults } from "../scb/projection.js";
+import { projectSearchResults } from "../scb/projection.js";
 import {
   countCompaniesInputSchema,
   countWorkplacesInputSchema,
@@ -136,14 +136,14 @@ function searchEnvelope(
   if (!projected.reklamPreserved) {
     extraWarnings.push("Reklam saknades i SCB-raderna; fältet strippas aldrig av MCP.");
   }
-  if (projected.omittedRows > 0) {
+  if (projected.omittedByMaxRows > 0) {
     extraWarnings.push(
-      `MCP-svaret trunkerades till maxRows=${projected.maxRows} (SCB hämtade ${options.results.length} rader; ingen paginering).`,
+      `MCP-svaret trunkerades till maxRows=${projected.maxRows} (SCB hämtade ${projected.fetched} rader; fields/maxRows minskar bara agentvyn, inte SCB-anropet).`,
     );
   }
-  const omitted = omittedFromCounts(options.count, projected.returned, projected.omittedRows);
   const payload: Record<string, unknown> = {
     count: options.count,
+    fetched: projected.fetched,
     returned: projected.returned,
     results: projected.results,
     filters: options.filters,
@@ -151,8 +151,8 @@ function searchEnvelope(
     projectedFields: projected.projectedFields,
     maxRows: projected.maxRows,
   };
-  if (omitted !== undefined) {
-    payload.omitted = omitted;
+  if (projected.omittedByMaxRows > 0) {
+    payload.omittedByMaxRows = projected.omittedByMaxRows;
   }
   if (options.skippedFetch) {
     payload.skippedFetch = true;

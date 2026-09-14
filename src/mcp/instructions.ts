@@ -10,8 +10,8 @@ Arbetsflöde:
 2. scb_lookup_codes för koder från etiketter (Gävleborg, bygg, verksam, 10-49) — inte includeCodeTables=true.
 3. scb_explain_query (valfritt, noll SCB-anrop) för att se serialiserad POST, operatorer och varningar innan kvot används.
 4. scb_count_* för att iterera. Om count=0: stanna, eller kontrollera koder / JE vs AE. Om count>2000: smalna filter. Paginera inte.
-5. scb_search_* hämtar bara när count≤2000. Search räknar internt och återanvänder en nylig count (kort TTL). Anropa inte extra count direkt före search. Svaret är projicerat (standard maxRows 75; Reklam följer alltid med).
-6. Tomma filter = hela populationen (warning). SCB returnerar högst 2000 rader. MCP kan trunkera ytterligare (omitted i svaret).
+5. scb_search_* hämtar bara när count≤2000. Search räknar internt och återanvänder en nylig count (kort TTL). Anropa inte extra count direkt före search. SCB hämtar hela mängden; fields/maxRows (standard 75) krymper bara agentvyn. Reklam följer alltid med.
+6. Tomma filter = hela populationen (warning). SCB returnerar högst 2000 rader. MCP kan klippa ytterligare (omittedByMaxRows).
 
 Anti-mönster:
 - Namn innehåller "Bygg" ≠ SNI/bransch. Använd kodtabell + ev. branchLevel.

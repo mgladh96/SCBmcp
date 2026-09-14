@@ -76,7 +76,7 @@ Hjälpsidor (certifikat krävs):
 | `MCP_AUTH_TOKEN` | rekommenderas | Delad hemlighet för MCP HTTP/SSE (`/sse`, `/messages`). Obligatorisk när `MCP_HOST` inte är loopback. |
 | `SCB_LIVE_TESTS` | nej | Sätt till `true` endast när du kör live-tester mot SCB |
 | `SCB_METADATA_CACHE_BYPASS` | nej | `true` hoppar över processcachen för kategorier, variabler och kodtabeller |
-| `SCB_AE_STATUS_TOP_LEVEL` | nej | Standard: AE `Arbetsställestatus` som toppnivåfält. `false` / `kategorier` skickar den i `Kategorier[]`. Verifiera mot `/help/exampleAe`. |
+| `SCB_AE_STATUS_TOP_LEVEL` | nej | **Default `true` (toppnivå) tills live `/help/exampleAe` bekräftas — ändras inte utan evidens.** `false` / `kategorier` skickar `Arbetsställestatus` i `Kategorier[]`. |
 
 Kopiera `.env.example`. Lägg inte hemligheter i git.
 
@@ -218,7 +218,7 @@ Sökverktygen returnerar SCB-fältnamn som de tas emot, inklusive `Reklam` när 
 
 ### Fältprojektion och resultattak (`fields[]`, `maxRows`)
 
-`scb_search_companies` och `scb_search_workplaces` hämtar fortfarande upp till SCB:s 2 000-tak (efter count-vakt). **Projektion och radtrunkering sker i MCP-lagret** efter hämtning — ingen om-hämtning och ingen låtsaspaginering mot SCB.
+`scb_search_*` **hämtar hela SCB-resultatet** efter count-vakten (högst 2 000 rader, ett `hamta*`-anrop). `fields[]` och `maxRows` krymper **bara vad agenten ser** — de minskar inte SCB-kvoten och är inte paginering. Använd count-first och smala filter innan search.
 
 | Parameter | Standard | Max |
 | --- | --- | --- |
@@ -232,8 +232,9 @@ Svarskuvert:
 ```json
 {
   "count": 500,
+  "fetched": 500,
   "returned": 75,
-  "omitted": 425,
+  "omittedByMaxRows": 425,
   "results": [],
   "filters": {},
   "warnings": ["MCP-svaret trunkerades till maxRows=75 …"],
@@ -241,7 +242,10 @@ Svarskuvert:
 }
 ```
 
-`count` är SCB-populationen. `returned` är rader i `results`. `omitted` sätts när MCP (eller skillnaden count−returned) visar att agenten inte ser hela mängden.
+- `count` — SCB-populationen (rakna)
+- `fetched` — rader i SCB:s hamta-svar
+- `returned` — rader i `results` efter `maxRows`
+- `omittedByMaxRows` — `fetched − returned` när MCP klippte; **inte** `count − returned`
 
 ### Identitet (PeOrgNr / OrgNr / CfarNr)
 
@@ -254,7 +258,7 @@ Inget eget lookup-verktyg. Använd `variables[]` med operator **`ArLikaMed`**.
 | OrgNr (10 siffror) | Behåller 10 siffror; 12-siffrigt med prefix 16/19/20 kapas. |
 | CfarNr | 8 siffror, SCB-tilldelat arbetsställenummer. |
 
-Bindestreck och blanksteg strippas. 10-siffriga personnummer-lika värden (månad 01–12) avvisas — ange 12 siffror med sekel. Skräp (bokstäver, fel längd, dålig kontrollsiffra) ger `SCB_INVALID_QUERY` utan SCB-anrop.
+Bindestreck och blanksteg strippas. 10-siffriga värden med månad 01–12 avvisas som personnummer-lika (ange 12 siffror med sekel). Månad 13–19 är skräp (organisationsnummer har månad ≥ 20). Skräp (bokstäver, fel längd, dålig kontrollsiffra) ger `SCB_INVALID_QUERY` utan SCB-anrop.
 
 Personnummer-lika PeOrgNr loggas inte i klartext.
 
@@ -266,7 +270,15 @@ Samma `objectType` + `filters` som count/search. Returnerar `layout`, `endpoints
 
 JE: `Företagsstatus` och `Registreringsstatus` är toppnivåfält (belagt mot `/help/exampleJe`).
 
-AE: `Arbetsställestatus` serialiseras som **toppnivåfält** på samma sätt, katalogstyrt per layout. Det följer SCB-dokumentation och tredjeparts `exampleAe`-dumpar. **Live `/help/exampleAe` är certifikat-låst och inte omverifierat i den här miljön.** Sätt `SCB_AE_STATUS_TOP_LEVEL=false` för att skicka fältet i `Kategorier[]` i stället. `scb_schema_summary` sätter `serialization: "top-level"` för AE-status när flaggan är på.
+AE: `Arbetsställestatus` serialiseras som **toppnivåfält** (samma mönster som JE). **Det är inte live-bekräftat mot `/help/exampleAe` i den här miljön** (certifikat krävs). Defaulten (`SCB_AE_STATUS_TOP_LEVEL` på / toppnivå) **ändras inte utan evidens**.
+
+Bekräfta så här:
+
+1. `GET https://privateapi.scb.se/nv0101/v1/sokpavar/help/exampleAe` med klientcertifikat.
+2. Om `Arbetsställestatus` är toppnivå: behåll default.
+3. Om den ligger i `Kategorier[]`: sätt `SCB_AE_STATUS_TOP_LEVEL=false` och starta om.
+
+`scb_explain_query` (workplace) returnerar `serialization.aeStatusNote`, `aeStatusEnvVar` och `liveConfirm`. `scb_schema_summary` sätter `serialization: "top-level"` när flaggan är på.
 
 `Företagsstatus` på AE-layout lyfts **inte** till toppnivå (hamnar i `Kategorier[]`).
 
@@ -281,7 +293,7 @@ Användare: ”Hitta aktiva byggföretag i Gävleborg med 10–49 anställda.”
 3. Valfritt `scb_explain_query` — noll kvot — för att se POST-kropp och varningar
 4. `scb_count_workplaces` / `scb_count_companies` med de koderna
 5. Om count är 0, stanna (search hoppar över `hamta*`). Om count > 2000, begränsa filtren — paginera inte. Om count ≤ 2000, fortsätt
-6. `scb_search_*` med samma filter. Search räknar internt och **återanvänder** en nylig count (ca 5 s), så extra count precis före search behövs inte. Svaret är projicerat (`maxRows` 75 om inget annat anges; `Reklam` följer med).
+6. `scb_search_*` med samma filter. Search räknar internt och **återanvänder** en nylig count (ca 5 s). SCB hämtar hela mängden; `maxRows` (standard 75) och `fields[]` krymper bara agentvyn. `Reklam` följer med.
 7. Resonera utifrån JSON:en som SCB returnerar
 
 Gävleborg är ett **län** på arbetsställe i SCB:s variabelbeskrivning; säteslän är motsvarigheten på företagsnivå. Agenten måste hämta det från SCB-metadata, inte från den här README:n.
@@ -363,4 +375,4 @@ Maskinläsbar JSON. `code`-strängarna är oförändrade. Dessutom: `nextAction`
 
 ## Live-verifiering mot SCB
 
-Certifikatautentisering, JE/AE-metadata, kodtabell och `raknaforetag` har verifierats mot SCB:s skarpa API med ett riktigt `.pfx`. POST-kroppar följer `/help/exampleJe`. AE `Arbetsställestatus` som toppnivå följer samma mönster men **behöver live-bekräftelse mot `/help/exampleAe`**. Sökning av resultatmängder större än 2 000 avvisas (`QUERY_TOO_BROAD`); den vägen bör kontrolleras med ett smalt filter.
+Certifikatautentisering, JE/AE-metadata, kodtabell och `raknaforetag` har verifierats mot SCB:s skarpa API med ett riktigt `.pfx`. POST-kroppar följer `/help/exampleJe`. AE `Arbetsställestatus` som toppnivå **är inte live-bekräftat mot `/help/exampleAe`**. Default `SCB_AE_STATUS_TOP_LEVEL` är på; om exampleAe visar `Kategorier[]` sätt `false`. Defaulten ändras inte utan evidens. Sökning av resultatmängder större än 2 000 avvisas (`QUERY_TOO_BROAD`); den vägen bör kontrolleras med ett smalt filter.

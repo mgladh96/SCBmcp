@@ -41,13 +41,16 @@ Anti-mönster: "Bygg" i namn ≠ SNI; operatorer som Contains; AnstSME vs Storle
 
 export const SEARCH_COMPANIES_DESCRIPTION = `Hämta juridiska enheter (JE). Räknar först (återanvänder nylig count, ~5 s). Om count=0 hoppas hamta över. Om count>2000: QUERY_TOO_BROAD (paginera inte).
 
-Valfritt fields[] och maxRows (standard 75, högst 2000). Standardfält: PeOrgNr, namn, status, geografi, SNI/bransch, storleksklass, Reklam. Reklam strippas aldrig. Trunkering sker i MCP efter hämtning; SCB anropas inte om.
+SCB-kostnad: search hämtar hela resultatmängden från SCB (efter 2000-vakten). fields[] och maxRows krymper bara vad agenten ser — de minskar inte hamta-anropet. Räkna först och smalna filter innan search.
+
+Valfritt fields[] och maxRows (standard 75, högst 2000). Standardfält: PeOrgNr, namn, status, geografi, SNI/bransch, storleksklass, Reklam. Reklam strippas aldrig.
 
 Filter: categories[] och variables[] med SCB-namn från listverktygen. Operatorer: Innehaller, ArLikaMed, m.fl. (allowlist). branchLevel = SCB Branschniva, bara på bransch/SNI.
 JE-geografi = säte (Säteslän), inte Län. Namn "Bygg" ≠ SNI.
 Org.nr: 10 eller 12 siffror; 10-siffrigt organisationsnummer → PeOrgNr med prefix 16. Operator ArLikaMed.
 
-Svarskuvert: { count, returned, omitted?, results, filters, warnings?, source }.
+Svarskuvert: { count, fetched, returned, omittedByMaxRows?, results, filters, warnings?, source }.
+count = SCB-population. fetched = rader i hamta-svaret. returned = rader i results. omittedByMaxRows = fetched−returned när maxRows klippte.
 Search är två kvotplatser om count inte cacheas (10 anrop / 10 s). Vid SCB_RATE_LIMITED: vänta retryAfterMs, retry_same.
 Vid SCB_UNKNOWN_CATEGORY/VARIABLE: nextTools pekar på listverktygen. SCB_AUTH_ERROR går inte att rätta med andra filter.`;
 
@@ -61,10 +64,13 @@ Tomma filter = hela populationen (warning).`;
 
 export const SEARCH_WORKPLACES_DESCRIPTION = `Hämta arbetsställen (AE). Räknar först (återanvänder nylig count, ~5 s). Om count=0 hoppas hamta över. Om count>2000: QUERY_TOO_BROAD (paginera inte).
 
+SCB-kostnad: search hämtar hela resultatmängden från SCB (efter 2000-vakten). fields[] och maxRows krymper bara agentvyn. Räkna först och smalna filter innan search.
+
 Valfritt fields[] och maxRows (standard 75, högst 2000). Standardfält: CfarNr, PeOrgNr, namn, status, geografi, SNI, storleksklass, Reklam. Reklam strippas aldrig.
 Gävleborg är AE Län när frågan gäller belägenhet. Namn "Bygg" ≠ SNI. Operatorer är SCB-enum (Innehaller, ArLikaMed, …).
 Storleksklass Anställda ≠ AnstSME. branchLevel = Branschniva, bara på bransch.
-CfarNr är 8 siffror, operator ArLikaMed. Svarskuvert: { count, returned, omitted?, results, filters, warnings?, source }.
+CfarNr är 8 siffror, operator ArLikaMed.
+Svarskuvert: { count, fetched, returned, omittedByMaxRows?, results, filters, warnings?, source }. count=SCB-population, fetched=hamta-rader, omittedByMaxRows=maxRows-klipp.
 
 Vid SCB_RATE_LIMITED: retryAfterMs + retry_same. Vid UNKNOWN_*: scb_schema_summary / nearestNames. Ingen historik.`;
 
@@ -72,6 +78,8 @@ export const EXPLAIN_QUERY_DESCRIPTION = `Dry-run: serialisera filter till SCB P
 
 Input: objectType (company|workplace) + samma filters som count/search.
 Svar: layout, endpoints (rakna*/hamta*), serializedBody, operatorvalidering, identitetsnormalisering, varningar (tomma filter, branchLevel på icke-bransch, JE/AE-geografi). Noll kvot.
+
+AE: serialization.aeStatusNote beskriver default toppnivå för Arbetsställestatus. Live /help/exampleAe är inte bekräftat här. Om exampleAe visar Kategorier[]: SCB_AE_STATUS_TOP_LEVEL=false.
 
 Använd före scb_count_*/scb_search_* när du vill se vad som skulle skickas.`;
 

@@ -7,7 +7,7 @@ import { catalogFetch, createTestClient, jsonResponse } from "./helpers.js";
 const silent = createLogger("error");
 
 describe("search projection and result budget", () => {
-  it("projects default fields, keeps Reklam, and truncates with omitted", async () => {
+  it("projects default fields, keeps Reklam, and truncates with omittedByMaxRows", async () => {
     const rows = Array.from({ length: 5 }, (_, i) => ({
       PeOrgNr: `16${i}`,
       Företagsnamn: `Bolag ${i}`,
@@ -30,19 +30,51 @@ describe("search projection and result budget", () => {
     });
     const payload = JSON.parse(result.content[0]?.text ?? "{}") as {
       count: number;
+      fetched?: number;
       returned: number;
       omitted?: number;
+      omittedByMaxRows?: number;
       results: Array<Record<string, unknown>>;
       warning?: string;
     };
     expect(payload.count).toBe(5);
+    expect(payload.fetched).toBe(5);
     expect(payload.returned).toBe(2);
-    expect(payload.omitted).toBe(3);
+    expect(payload.omittedByMaxRows).toBe(3);
+    expect(payload.omitted).toBeUndefined();
     expect(payload.results[0]?.Reklam).toBe("11");
     expect(payload.results[0]?.Företagsnamn).toBe("Bolag 0");
     expect(payload.results[0]?.Telefon).toBeUndefined();
     expect(payload.results[0]?.Extra).toBeUndefined();
     expect(payload.warning).toMatch(/maxRows/);
+  });
+
+  it("does not treat count−fetched as omittedByMaxRows", async () => {
+    const rows = [{ PeOrgNr: "165560747569", Företagsnamn: "A", Reklam: "11" }];
+    const handlers = createToolHandlers(
+      createTestClient(async (url) => {
+        if (url.includes("raknaforetag")) {
+          return jsonResponse(200, 10);
+        }
+        return jsonResponse(200, rows);
+      }),
+      silent,
+    );
+    const result = await handlers.scb_search_companies({
+      filters: { categories: [{ category: "Företagsstatus", values: ["1"] }] },
+    });
+    const payload = JSON.parse(result.content[0]?.text ?? "{}") as {
+      count: number;
+      fetched?: number;
+      returned: number;
+      omitted?: number;
+      omittedByMaxRows?: number;
+    };
+    expect(payload.count).toBe(10);
+    expect(payload.fetched).toBe(1);
+    expect(payload.returned).toBe(1);
+    expect(payload.omittedByMaxRows).toBeUndefined();
+    expect(payload.omitted).toBeUndefined();
   });
 
   it("never strips Reklam even when fields[] omits it", async () => {
@@ -141,6 +173,7 @@ describe("scb_explain_query", () => {
       endpoints: { count: string; fetch: string };
       serializedBody: Record<string, unknown>;
       operatorValidation: { ok: boolean };
+      serialization: { aeStatusEnvVar?: string; aeStatusNote?: string; liveConfirm?: string };
     };
     expect(payload.dryRun).toBe(true);
     expect(payload.layout).toBe("ae");
@@ -149,6 +182,9 @@ describe("scb_explain_query", () => {
     expect(payload.serializedBody.Arbetsställestatus).toBe("1");
     expect(payload.serializedBody.Kategorier).toEqual([{ Kategori: "Län", Kod: ["21"] }]);
     expect(payload.operatorValidation.ok).toBe(true);
+    expect(payload.serialization.aeStatusEnvVar).toBe("SCB_AE_STATUS_TOP_LEVEL");
+    expect(payload.serialization.aeStatusNote).toMatch(/SCB_AE_STATUS_TOP_LEVEL=false/);
+    expect(payload.serialization.liveConfirm).toMatch(/exampleAe/);
   });
 
   it("warns on empty filters, JE/AE geography, and operator arity", async () => {

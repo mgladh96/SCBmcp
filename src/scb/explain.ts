@@ -29,7 +29,9 @@ export type ExplainQueryResult = {
   serialization: {
     topLevelCategories: string[];
     aeStatusTopLevel: boolean;
+    aeStatusEnvVar: "SCB_AE_STATUS_TOP_LEVEL";
     aeStatusNote?: string;
+    liveConfirm?: string;
   };
   source: string;
 };
@@ -55,9 +57,12 @@ export function explainQuery(objectType: ObjectType, filters: ScbFilters): Expla
   const serialization: ExplainQueryResult["serialization"] = {
     topLevelCategories: topLevel,
     aeStatusTopLevel: objectType === "workplace" && aeStatusTopLevelEnabled(),
+    aeStatusEnvVar: "SCB_AE_STATUS_TOP_LEVEL",
   };
   if (objectType === "workplace") {
     serialization.aeStatusNote = AE_STATUS_LIVE_CONFIRM_NOTE;
+    serialization.liveConfirm =
+      "GET /help/exampleAe with the client cert. If Arbetsställestatus is not top-level, set SCB_AE_STATUS_TOP_LEVEL=false.";
   }
 
   const identityBlock: ExplainQueryResult["identity"] = {

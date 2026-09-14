@@ -21,7 +21,7 @@ export const AE_TOP_LEVEL_STATUS = "Arbetsställestatus";
 export const TOP_LEVEL_CATEGORIES = new Set<string>(JE_TOP_LEVEL_CATEGORIES);
 
 export const AE_STATUS_LIVE_CONFIRM_NOTE =
-  "Arbetsställestatus serialiseras som toppnivåfält (samma mönster som JE Företagsstatus) utifrån SCB-dokumentation och tredjeparts exampleAe. Live /help/exampleAe är certifikat-låst och inte omverifierat här. Sätt SCB_AE_STATUS_TOP_LEVEL=false för Kategorier[] i stället.";
+  "OBEKRÄFTAT mot live /help/exampleAe (klientcertifikat krävs). Default är toppnivåfält för Arbetsställestatus (JE-mönster + tredjeparts exampleAe) — defaulten ändras inte utan den bekräftelsen. Bekräfta GET https://privateapi.scb.se/nv0101/v1/sokpavar/help/exampleAe. Om exampleAe lägger status i Kategorier[]: sätt SCB_AE_STATUS_TOP_LEVEL=false och starta om.";
 
 export function aeStatusTopLevelEnabled(): boolean {
   const raw = process.env.SCB_AE_STATUS_TOP_LEVEL?.trim().toLowerCase();

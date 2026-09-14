@@ -11,11 +11,34 @@ import {
 const ORG10 = "5560747569";
 const PEORG12 = `16${ORG10}`;
 
+function findLuhn(first9: string): string {
+  for (let digit = 0; digit <= 9; digit += 1) {
+    const candidate = `${first9}${digit}`;
+    if (luhn10(candidate)) {
+      return candidate;
+    }
+  }
+  throw new Error("no luhn digit");
+}
+
 describe("PeOrgNr 10↔12", () => {
   it("pads a 10-digit organisationsnummer with legal-person prefix 16", () => {
     expect(luhn10(ORG10)).toBe(true);
+    expect(ORG10.slice(2, 4)).toBe("60");
     const result = normalizePeOrgNr("556074-7569");
     expect(result).toMatchObject({ ok: true, value: PEORG12, fromLength: 10, personnummerLike: false });
+  });
+
+  it("accepts a Luhn-valid 10-digit orgnr whose month part is 20", () => {
+    const month20 = findLuhn("552001000");
+    expect(month20.slice(2, 4)).toBe("20");
+    expect(luhn10(month20)).toBe(true);
+    expect(normalizePeOrgNr(month20)).toMatchObject({
+      ok: true,
+      value: `16${month20}`,
+      fromLength: 10,
+      personnummerLike: false,
+    });
   });
 
   it("keeps a 12-digit PeOrgNr that already has prefix 16", () => {
@@ -62,6 +85,26 @@ describe("identity garbage", () => {
     }
   });
 
+  it("rejects 10-digit values with month 13–19 even when Luhn is valid", () => {
+    const month13 = findLuhn("551301000");
+    expect(month13.slice(2, 4)).toBe("13");
+    expect(luhn10(month13)).toBe(true);
+    const rejected13 = normalizePeOrgNr(month13);
+    expect(rejected13.ok).toBe(false);
+    if (!rejected13.ok) {
+      expect(rejected13.code).toBe("IDENTITY_GARBAGE");
+    }
+
+    const month19 = findLuhn("551901000");
+    expect(month19.slice(2, 4)).toBe("19");
+    expect(luhn10(month19)).toBe(true);
+    const rejected19 = normalizePeOrgNr(month19);
+    expect(rejected19.ok).toBe(false);
+    if (!rejected19.ok) {
+      expect(rejected19.code).toBe("IDENTITY_GARBAGE");
+    }
+  });
+
   it("rejects bad checksum", () => {
     expect(normalizePeOrgNr("5560747568").ok).toBe(false);
   });
@@ -96,13 +139,3 @@ describe("filter sugar and redaction", () => {
     expect(redactIdentity(ORG10)).toMatch(/…/);
   });
 });
-
-function findLuhn(first9: string): string {
-  for (let digit = 0; digit <= 9; digit += 1) {
-    const candidate = `${first9}${digit}`;
-    if (luhn10(candidate)) {
-      return candidate;
-    }
-  }
-  throw new Error("no luhn digit");
-}

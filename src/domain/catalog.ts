@@ -459,7 +459,7 @@ export function schemaWarnings(objectType: ObjectType): string[] {
         ]
       : [
           "AE-geografi är belägenhet (Län/Kommun). Gävleborg är Län, inte JE-säte.",
-          "Arbetsställestatus serialiseras som toppnivåfält (samma mönster som JE-status). Verifiera mot /help/exampleAe; SCB_AE_STATUS_TOP_LEVEL=false ger Kategorier[].",
+          "Arbetsställestatus serialiseras som toppnivåfält tills live /help/exampleAe bekräftas (certifikat). Defaulten ändras inte utan evidens. Om exampleAe visar Kategorier[]: SCB_AE_STATUS_TOP_LEVEL=false.",
         ];
   warnings.push(
     "Dumpa inte SNI med includeCodeTables=true — använd scb_lookup_codes eller scb_get_category_values med query.",

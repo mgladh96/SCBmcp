@@ -55,7 +55,38 @@ export function defaultFieldTokens(objectType: ObjectType): string[] {
 }
 
 export function isReklamField(name: string): boolean {
-  return fold(name).includes(REKLAM_FIELD_TOKEN);
+  const folded = fold(name);
+  return folded === REKLAM_FIELD_TOKEN || folded.startsWith(REKLAM_FIELD_TOKEN) || folded.endsWith(REKLAM_FIELD_TOKEN);
+}
+
+/**
+ * Exact folded match, or prefix/stem match with a token boundary.
+ * Does not use bidirectional `includes` (avoids "Nr"→PeOrgNr, "lan"→Plan).
+ */
+export function fieldMatchesToken(fieldName: string, token: string): boolean {
+  const folded = fold(fieldName);
+  const needle = fold(token);
+  if (!folded || !needle) {
+    return false;
+  }
+  if (folded === needle) {
+    return true;
+  }
+  const stem = stripMetadataSuffix(folded);
+  if (stem === needle) {
+    return true;
+  }
+  if (stem.startsWith(needle)) {
+    const rest = stem.slice(needle.length);
+    if (rest === "" || /^\d/.test(rest) || needle.length >= 4) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function stripMetadataSuffix(folded: string): string {
+  return folded.replace(/(kod|text)$/u, "");
 }
 
 export function shouldKeepField(
@@ -66,14 +97,10 @@ export function shouldKeepField(
   if (isReklamField(fieldName)) {
     return true;
   }
-  const folded = fold(fieldName);
   if (requested && requested.length > 0) {
-    return requested.some((item) => {
-      const needle = fold(item);
-      return folded === needle || folded.includes(needle) || needle.includes(folded);
-    });
+    return requested.some((item) => fieldMatchesToken(fieldName, item));
   }
-  return defaultFieldTokens(objectType).some((token) => folded.includes(token));
+  return defaultFieldTokens(objectType).some((token) => fieldMatchesToken(fieldName, token));
 }
 
 export function projectRecord(
@@ -101,7 +128,8 @@ export function projectSearchResults(
 ): {
   results: unknown[];
   returned: number;
-  omittedRows: number;
+  fetched: number;
+  omittedByMaxRows: number;
   projectedFields: string[];
   maxRows: number;
   reklamPreserved: boolean;
@@ -140,14 +168,10 @@ export function projectSearchResults(
   return {
     results: sliced,
     returned: sliced.length,
-    omittedRows: Math.max(0, projected.length - sliced.length),
+    fetched: results.length,
+    omittedByMaxRows: Math.max(0, projected.length - sliced.length),
     projectedFields: [...fieldNames].sort((a, b) => a.localeCompare(b, "sv")),
     maxRows,
     reklamPreserved,
   };
-}
-
-export function omittedFromCounts(count: number, returned: number, omittedRows: number): number | undefined {
-  const omitted = Math.max(omittedRows, count - returned);
-  return omitted > 0 ? omitted : undefined;
 }
