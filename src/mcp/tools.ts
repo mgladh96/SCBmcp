@@ -1,14 +1,19 @@
+import { branchLevelWarnings, DEFAULT_CATEGORY_VALUES_LIMIT, filterHintsFor } from "../domain/catalog.js";
 import { ScbError } from "../domain/errors.js";
 import { createLogger } from "../log.js";
 import type { ScbClient } from "../scb/client.js";
-import { toMetadataEnvelope } from "../scb/payload.js";
+import { SCB_OPERATOR_NAMES } from "../scb/operators.js";
+import { toMetadataEnvelope, truncateMetadataItems } from "../scb/payload.js";
 import {
   countCompaniesInputSchema,
   countWorkplacesInputSchema,
+  filterHintsInputSchema,
   getCategoryValuesInputSchema,
   isUnboundedFilters,
   listCategoriesInputSchema,
   listVariablesInputSchema,
+  lookupCodesInputSchema,
+  schemaSummaryInputSchema,
   searchCompaniesInputSchema,
   searchWorkplacesInputSchema,
   type ScbFilters,
@@ -51,23 +56,34 @@ function errorResult(error: unknown): ToolResult {
   };
 }
 
-function invalidInput(tool: string, error: { flatten: () => unknown; issues: Array<{ path: PropertyKey[] }> }): ScbError {
+function invalidInput(tool: string, error: { flatten: () => unknown; issues: Array<{ path: PropertyKey[]; code?: string }> }): ScbError {
   const firstPath = error.issues[0]?.path.map(String).join(".");
+  const operatorIssue = error.issues.some((issue) => issue.path.map(String).includes("operator"));
   return new ScbError("SCB_INVALID_QUERY", `Invalid input for ${tool}.`, false, {
     origin: "mcp_input",
     issues: error.flatten(),
     ...(firstPath ? { field: firstPath, unknownName: firstPath } : {}),
+    ...(operatorIssue ? { allowedOperators: [...SCB_OPERATOR_NAMES] } : {}),
   });
 }
 
 function withFilterWarning<T extends Record<string, unknown>>(
   payload: T,
   filters: ScbFilters,
-): T & { warning?: string } {
-  if (!isUnboundedFilters(filters)) {
+): T & { warning?: string; warnings?: string[] } {
+  const warnings: string[] = [];
+  if (isUnboundedFilters(filters)) {
+    warnings.push(UNBOUNDED_QUERY_WARNING);
+  }
+  warnings.push(...branchLevelWarnings(filters));
+  if (warnings.length === 0) {
     return payload;
   }
-  return { ...payload, warning: UNBOUNDED_QUERY_WARNING };
+  const extra: { warning: string; warnings: string[] } = {
+    warning: warnings[0] ?? UNBOUNDED_QUERY_WARNING,
+    warnings,
+  };
+  return { ...payload, ...extra };
 }
 
 export function createToolHandlers(client: ScbClient, log = createLogger()) {
@@ -115,6 +131,12 @@ export function createToolHandlers(client: ScbClient, log = createLogger()) {
         const raw = await client.getCategoryValues(parsed.data.objectType, parsed.data.category, {
           bypassCache: parsed.data.bypassCache === true,
         });
+        const truncated = truncateMetadataItems(raw, {
+          query: parsed.data.query,
+          limit: parsed.data.limit,
+          includeAll: parsed.data.includeAll,
+          defaultLimit: DEFAULT_CATEGORY_VALUES_LIMIT,
+        });
         const envelope = toMetadataEnvelope(parsed.data.objectType, raw);
         log.info("MCP tool", {
           tool: "scb_get_category_values",
@@ -122,12 +144,17 @@ export function createToolHandlers(client: ScbClient, log = createLogger()) {
           status: 200,
           objectType: parsed.data.objectType,
         });
+        const includeRaw = parsed.data.includeAll === true || parsed.data.limit === 0;
         return jsonResult({
           objectType: envelope.objectType,
           category: parsed.data.category,
-          items: envelope.items,
-          raw: envelope.raw,
-          values: envelope.raw,
+          query: parsed.data.query ?? null,
+          total: truncated.total,
+          returned: truncated.returned,
+          truncated: truncated.truncated,
+          items: truncated.items,
+          values: truncated.items,
+          ...(includeRaw ? { raw: envelope.raw } : {}),
           source: SOURCE_LABEL,
         });
       } catch (error) {
@@ -301,6 +328,86 @@ export function createToolHandlers(client: ScbClient, log = createLogger()) {
         );
       } catch (error) {
         logToolError("scb_search_workplaces", started, error);
+        return errorResult(error);
+      }
+    },
+
+    async scb_schema_summary(input: unknown): Promise<ToolResult> {
+      const parsed = schemaSummaryInputSchema.safeParse(input);
+      if (!parsed.success) {
+        return errorResult(invalidInput("scb_schema_summary", parsed.error));
+      }
+      const started = Date.now();
+      try {
+        const summary = await client.schemaSummary(parsed.data.objectType, {
+          bypassCache: parsed.data.bypassCache === true,
+        });
+        log.info("MCP tool", {
+          tool: "scb_schema_summary",
+          durationMs: Date.now() - started,
+          status: 200,
+          objectType: parsed.data.objectType,
+        });
+        return jsonResult({ ...summary, source: SOURCE_LABEL });
+      } catch (error) {
+        logToolError("scb_schema_summary", started, error);
+        return errorResult(error);
+      }
+    },
+
+    async scb_lookup_codes(input: unknown): Promise<ToolResult> {
+      const parsed = lookupCodesInputSchema.safeParse(input);
+      if (!parsed.success) {
+        return errorResult(invalidInput("scb_lookup_codes", parsed.error));
+      }
+      const started = Date.now();
+      try {
+        const result = await client.lookupCodes(parsed.data.objectType, parsed.data.query, {
+          category: parsed.data.category,
+          limit: parsed.data.limit,
+          bypassCache: parsed.data.bypassCache === true,
+        });
+        log.info("MCP tool", {
+          tool: "scb_lookup_codes",
+          durationMs: Date.now() - started,
+          status: 200,
+          objectType: parsed.data.objectType,
+        });
+        return jsonResult({ ...result, source: SOURCE_LABEL });
+      } catch (error) {
+        logToolError("scb_lookup_codes", started, error);
+        return errorResult(error);
+      }
+    },
+
+    async scb_filter_hints(input: unknown): Promise<ToolResult> {
+      const parsed = filterHintsInputSchema.safeParse(input);
+      if (!parsed.success) {
+        return errorResult(invalidInput("scb_filter_hints", parsed.error));
+      }
+      const started = Date.now();
+      try {
+        const catalog =
+          parsed.data.objectType !== undefined
+            ? {
+                categoryNames: client.cachedCategoryNames(parsed.data.objectType),
+                variableNames: client.cachedVariableNames(parsed.data.objectType),
+              }
+            : undefined;
+        const hints = filterHintsFor(parsed.data.objectType, parsed.data.questionClass, catalog);
+        log.info("MCP tool", {
+          tool: "scb_filter_hints",
+          durationMs: Date.now() - started,
+          status: 200,
+        });
+        return jsonResult({
+          questionClass: parsed.data.questionClass ?? null,
+          objectType: parsed.data.objectType ?? null,
+          hints,
+          source: SOURCE_LABEL,
+        });
+      } catch (error) {
+        logToolError("scb_filter_hints", started, error);
         return errorResult(error);
       }
     },

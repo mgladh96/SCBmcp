@@ -3,12 +3,16 @@ import { z } from "zod";
 import {
   countCompaniesInputSchema,
   countWorkplacesInputSchema,
+  filterHintsInputSchema,
   getCategoryValuesInputSchema,
   listCategoriesInputSchema,
   listVariablesInputSchema,
+  lookupCodesInputSchema,
+  schemaSummaryInputSchema,
   searchCompaniesInputSchema,
   searchWorkplacesInputSchema,
 } from "../scb/schemas.js";
+import { OPERATORS_VERIFY_NOTE, SCB_OPERATORS } from "../scb/operators.js";
 import {
   countThenFetchPrompt,
   exploreSchemaPrompt,
@@ -18,9 +22,12 @@ import {
 import {
   COUNT_COMPANIES_DESCRIPTION,
   COUNT_WORKPLACES_DESCRIPTION,
+  FILTER_HINTS_DESCRIPTION,
   GET_CATEGORY_VALUES_DESCRIPTION,
   LIST_CATEGORIES_DESCRIPTION,
   LIST_VARIABLES_DESCRIPTION,
+  LOOKUP_CODES_DESCRIPTION,
+  SCHEMA_SUMMARY_DESCRIPTION,
   SEARCH_COMPANIES_DESCRIPTION,
   SEARCH_WORKPLACES_DESCRIPTION,
 } from "./tool-descriptions.js";
@@ -111,6 +118,55 @@ export function createMcpServer(handlers: ToolHandlers): McpServer {
       inputSchema: searchWorkplacesInputSchema.shape,
     },
     async (args) => handlers.scb_search_workplaces(args),
+  );
+
+  server.registerTool(
+    "scb_schema_summary",
+    {
+      title: "Kompakt SCB-schemasammanfattning",
+      description: SCHEMA_SUMMARY_DESCRIPTION,
+      inputSchema: schemaSummaryInputSchema.shape,
+    },
+    async (args) => handlers.scb_schema_summary(args),
+  );
+
+  server.registerTool(
+    "scb_lookup_codes",
+    {
+      title: "Sök SCB-koder",
+      description: LOOKUP_CODES_DESCRIPTION,
+      inputSchema: lookupCodesInputSchema.shape,
+    },
+    async (args) => handlers.scb_lookup_codes(args),
+  );
+
+  server.registerTool(
+    "scb_filter_hints",
+    {
+      title: "Filtertips per frågeklass",
+      description: FILTER_HINTS_DESCRIPTION,
+      inputSchema: filterHintsInputSchema.shape,
+    },
+    async (args) => handlers.scb_filter_hints(args),
+  );
+
+  server.registerResource(
+    "scb-operators",
+    "scb://operators",
+    {
+      title: "SCB-operatorer",
+      description: "Konservativ allowlist för variabel-operatorer.",
+      mimeType: "application/json",
+    },
+    async () => ({
+      contents: [
+        {
+          uri: "scb://operators",
+          mimeType: "application/json",
+          text: JSON.stringify({ operators: SCB_OPERATORS, note: OPERATORS_VERIFY_NOTE }, null, 2),
+        },
+      ],
+    }),
   );
 
   server.registerPrompt(

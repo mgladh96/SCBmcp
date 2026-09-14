@@ -133,12 +133,25 @@ describe("error mapping", () => {
     });
   });
 
+  it("rejects unknown operators locally with allowedOperators", async () => {
+    const client = createTestClient(async () => jsonResponse(200, 1));
+    await expect(
+      client.countCompanies({
+        categories: [],
+        variables: [{ variable: "Firma", operator: "Contains", value: "x" }],
+      }),
+    ).rejects.toMatchObject({
+      code: "SCB_INVALID_QUERY",
+      details: { allowedOperators: expect.arrayContaining(["Innehaller"]), unknownName: "Contains" },
+    });
+  });
+
   it("maps variabel 400 to SCB_UNKNOWN_VARIABLE", async () => {
     const client = createTestClient(async () => jsonResponse(400, { message: "Okänd variabel" }));
     await expect(
       client.countCompanies({
         categories: [],
-        variables: [{ variable: "Firma", operator: "Contains", value: "x" }],
+        variables: [{ variable: "Firma", operator: "Innehaller", value: "x" }],
       }),
     ).rejects.toMatchObject({
       code: "SCB_UNKNOWN_VARIABLE",

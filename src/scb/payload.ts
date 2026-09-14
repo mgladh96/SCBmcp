@@ -8,7 +8,11 @@ import type { ScbFilters } from "./schemas.js";
  * string properties. Other categories use Kategorier[]. Variables use
  * lowercase `variabler` with Operator / Varde1 / Varde2 / Variabel.
  */
-const TOP_LEVEL_CATEGORIES = new Set(["Företagsstatus", "Registreringsstatus"]);
+export const TOP_LEVEL_CATEGORIES = new Set(["Företagsstatus", "Registreringsstatus"]);
+
+export function isTopLevelCategory(name: string): boolean {
+  return TOP_LEVEL_CATEGORIES.has(name);
+}
 
 export function toKodtabellBody(category: string): unknown {
   return { Kategori: category };
@@ -124,6 +128,46 @@ export function toMetadataEnvelope(
 
 export function extractMetadataItems(raw: unknown): MetadataItem[] {
   return extractMetadataRows(raw).map(toMetadataItem);
+}
+
+export function truncateMetadataItems(
+  raw: unknown,
+  options: {
+    query?: string | undefined;
+    limit?: number | undefined;
+    includeAll?: boolean | undefined;
+    defaultLimit: number;
+  },
+): {
+  items: MetadataItem[];
+  total: number;
+  returned: number;
+  truncated: boolean;
+} {
+  const all = extractMetadataItems(raw);
+  const query = options.query?.trim() ?? "";
+  const filtered =
+    query.length === 0
+      ? all
+      : all.filter((item) => metadataItemMatches(item, query));
+  const includeAll = options.includeAll === true || options.limit === 0;
+  const cap = includeAll ? filtered.length : (options.limit ?? options.defaultLimit);
+  const items = filtered.slice(0, cap);
+  return {
+    items,
+    total: filtered.length,
+    returned: items.length,
+    truncated: items.length < filtered.length,
+  };
+}
+
+function metadataItemMatches(item: MetadataItem, query: string): boolean {
+  const hay = Object.values(item)
+    .filter((value) => typeof value === "string")
+    .join(" ");
+  const needle = query.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+  const foldedHay = hay.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+  return foldedHay.includes(needle) || hay.toLowerCase().includes(query.toLowerCase());
 }
 
 function extractMetadataRows(raw: unknown): unknown[] {

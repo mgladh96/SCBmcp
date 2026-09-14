@@ -50,6 +50,20 @@ describe("MCP server instructions and prompts", () => {
     expect(search?.description).toContain("Innehaller");
   });
 
+  it("registers schema summary, lookup, filter hints, and operators resource", async () => {
+    const client = await connect();
+    const tools = await client.listTools();
+    const names = tools.tools.map((tool) => tool.name);
+    expect(names).toEqual(
+      expect.arrayContaining(["scb_schema_summary", "scb_lookup_codes", "scb_filter_hints"]),
+    );
+    const resources = await client.listResources();
+    expect(resources.resources.map((resource) => resource.uri)).toContain("scb://operators");
+    const operators = await client.readResource({ uri: "scb://operators" });
+    const text = operators.contents[0] && "text" in operators.contents[0] ? operators.contents[0].text : "";
+    expect(text).toContain("Innehaller");
+  });
+
   it("registers explore, count-then-fetch, and too-broad prompts", async () => {
     const client = await connect();
     const listed = await client.listPrompts();

@@ -168,7 +168,9 @@ describe("MCP error passthrough", () => {
     };
     expect(payload.code).toBe("SCB_UNKNOWN_CATEGORY");
     expect(payload.nextAction).toBe("retry_modified");
-    expect(payload.nextTools).toEqual(["scb_list_categories", "scb_get_category_values"]);
+    expect(payload.nextTools).toEqual(
+      expect.arrayContaining(["scb_list_categories", "scb_schema_summary", "scb_lookup_codes"]),
+    );
     expect(payload.details.unknownName).toBe("Bransch");
     expect(payload.details.field).toBe("category");
   });
