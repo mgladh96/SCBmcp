@@ -18,6 +18,7 @@ type LogFields = {
 };
 
 const SENSITIVE_KEY = /password|passphrase|pfx|private.?key|cert(?:ificate)?|token|secret|authorization/i;
+const PERSONNUMMER_LIKE = /^(?:19|20)\d{10}$/;
 
 export function createLogger(level: LogLevel = "info") {
   const rank = { debug: 10, info: 20, error: 30 };
@@ -48,7 +49,18 @@ function sanitize(fields: LogFields): LogFields {
     if (SENSITIVE_KEY.test(key)) {
       continue;
     }
-    out[key] = value;
+    out[key] = redactIdentityValue(value);
   }
   return out;
+}
+
+function redactIdentityValue(value: unknown): unknown {
+  if (typeof value !== "string") {
+    return value;
+  }
+  const digits = value.replace(/\D/g, "");
+  if (PERSONNUMMER_LIKE.test(digits)) {
+    return "[redacted-identity]";
+  }
+  return value;
 }

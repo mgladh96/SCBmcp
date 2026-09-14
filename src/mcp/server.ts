@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   countCompaniesInputSchema,
   countWorkplacesInputSchema,
+  explainQueryInputSchema,
   filterHintsInputSchema,
   getCategoryValuesInputSchema,
   listCategoriesInputSchema,
@@ -22,6 +23,7 @@ import {
 import {
   COUNT_COMPANIES_DESCRIPTION,
   COUNT_WORKPLACES_DESCRIPTION,
+  EXPLAIN_QUERY_DESCRIPTION,
   FILTER_HINTS_DESCRIPTION,
   GET_CATEGORY_VALUES_DESCRIPTION,
   LIST_CATEGORIES_DESCRIPTION,
@@ -118,6 +120,16 @@ export function createMcpServer(handlers: ToolHandlers): McpServer {
       inputSchema: searchWorkplacesInputSchema.shape,
     },
     async (args) => handlers.scb_search_workplaces(args),
+  );
+
+  server.registerTool(
+    "scb_explain_query",
+    {
+      title: "Förklara SCB-fråga (dry-run)",
+      description: EXPLAIN_QUERY_DESCRIPTION,
+      inputSchema: explainQueryInputSchema.shape,
+    },
+    async (args) => handlers.scb_explain_query(args),
   );
 
   server.registerTool(

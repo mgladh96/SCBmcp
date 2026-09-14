@@ -8,15 +8,17 @@ Gävleborg är AE-kategorin Län om användaren menar belägenhet. Använd Säte
 Arbetsflöde:
 1. scb_schema_summary för rätt objectType (kompakt katalog). Kategori- och variabelnamn MÅSTE komma därifrån eller från listverktygen (exakt stavning).
 2. scb_lookup_codes för koder från etiketter (Gävleborg, bygg, verksam, 10-49) — inte includeCodeTables=true.
-3. scb_count_* för att iterera. Om count=0: stanna, eller kontrollera koder / JE vs AE. Om count>2000: smalna filter. Paginera inte.
-4. scb_search_* hämtar bara när count≤2000. Search räknar internt och återanvänder en nylig count (kort TTL). Anropa inte extra count direkt före search.
-5. Tomma filter = hela populationen (warning). SCB returnerar högst 2000 rader.
+3. scb_explain_query (valfritt, noll SCB-anrop) för att se serialiserad POST, operatorer och varningar innan kvot används.
+4. scb_count_* för att iterera. Om count=0: stanna, eller kontrollera koder / JE vs AE. Om count>2000: smalna filter. Paginera inte.
+5. scb_search_* hämtar bara när count≤2000. Search räknar internt och återanvänder en nylig count (kort TTL). Anropa inte extra count direkt före search. SCB hämtar hela mängden; fields/maxRows (standard 75) krymper bara agentvyn. Reklam följer alltid med.
+6. Tomma filter = hela populationen (warning). SCB returnerar högst 2000 rader. MCP kan klippa ytterligare (omittedByMaxRows).
 
 Anti-mönster:
 - Namn innehåller "Bygg" ≠ SNI/bransch. Använd kodtabell + ev. branchLevel.
 - Operatorer är SCB-enum: Innehaller, ArLikaMed, BorjarPa, Mellan, FranOchMed, TillOchMed, Finns, FinnsInte — inte Contains/Equals.
 - AnstSME ≠ Storleksklass Anställda. Använd namnet listverktyget returnerar.
-- Behåll fältet Reklam; kringgå inte reklamspärr.
+- Behåll fältet Reklam; kringgå inte reklamspärr. Search projicerar fält i MCP; Reklam strippas aldrig.
+- Org.nr: 10 siffror (organisationsnummer) normaliseras till PeOrgNr 16+10. CFAR är 8 siffror, operator ArLikaMed.
 - Ingen historik i detta API.
 - Kvot: 10 anrop / 10 sekunder. Vid SCB_RATE_LIMITED: vänta retryAfterMs och upprepa samma anrop (retry_same). Servern väntar inte tyst.
 

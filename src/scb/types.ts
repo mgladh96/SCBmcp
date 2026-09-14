@@ -2,6 +2,9 @@ export const SOURCE_REGISTRY = "Allmänna företagsregistret";
 export const SOURCE_PROVIDER = "SCB";
 export const SOURCE_LABEL = "SCB Allmänna företagsregister";
 export const MAX_RESULTS = 2000;
+/** MCP search default: well below SCB's 2000 cap so agent context stays usable. */
+export const DEFAULT_SEARCH_MAX_ROWS = 75;
+export const MAX_SEARCH_MAX_ROWS = MAX_RESULTS;
 export const RATE_LIMIT_MAX_CALLS = 10;
 export const RATE_LIMIT_WINDOW_MS = 10_000;
 /** SCB metadata is updated overnight; a multi-hour process cache is enough. */

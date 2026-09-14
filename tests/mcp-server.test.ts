@@ -55,7 +55,7 @@ describe("MCP server instructions and prompts", () => {
     const tools = await client.listTools();
     const names = tools.tools.map((tool) => tool.name);
     expect(names).toEqual(
-      expect.arrayContaining(["scb_schema_summary", "scb_lookup_codes", "scb_filter_hints"]),
+      expect.arrayContaining(["scb_schema_summary", "scb_lookup_codes", "scb_filter_hints", "scb_explain_query"]),
     );
     const resources = await client.listResources();
     expect(resources.resources.map((resource) => resource.uri)).toContain("scb://operators");

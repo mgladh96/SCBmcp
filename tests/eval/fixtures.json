@@ -1,0 +1,296 @@
+[
+  {
+    "id": "q01",
+    "question": "Hitta aktiva byggföretag i Gävleborg med 10–49 anställda.",
+    "expectedObjectType": "workplace",
+    "expectedCategories": ["Län", "Bransch", "Arbetsställestatus", "Storleksklass Anställda"],
+    "questionClass": "industry_and_place",
+    "answerable": true,
+    "notes": "Belägenhet = AE. Namn Bygg ≠ SNI. 10–49 är storleksklass(er), inte exakt headcount.",
+    "lookup": { "query": "Gävleborg", "objectType": "workplace", "expectedCategory": "Län", "expectedCode": "21" }
+  },
+  {
+    "id": "q02",
+    "question": "Hur många arbetsställen finns i Gävle kommun?",
+    "expectedObjectType": "workplace",
+    "expectedCategories": ["Kommun", "Arbetsställestatus"],
+    "questionClass": "workplaces_in_region",
+    "answerable": true,
+    "notes": "Count-first. Kommun är AE-belägenhet."
+  },
+  {
+    "id": "q03",
+    "question": "Hur många företag har säte i Stockholms län?",
+    "expectedObjectType": "company",
+    "expectedCategories": ["Säteslän", "Företagsstatus"],
+    "questionClass": "companies_in_region",
+    "answerable": true,
+    "notes": "Säte, inte AE Län.",
+    "layoutTrap": { "unknownName": "Län", "objectType": "company", "hintIncludes": "Säteslän" }
+  },
+  {
+    "id": "q04",
+    "question": "Företag i Gävleborg — jag menar där de har sitt säte.",
+    "expectedObjectType": "company",
+    "expectedCategories": ["Säteslän", "Företagsstatus"],
+    "questionClass": "companies_in_region",
+    "answerable": true,
+    "notes": "Uttryckligt säte → JE."
+  },
+  {
+    "id": "q05",
+    "question": "Verksamheter som ligger i Gävleborgs län.",
+    "expectedObjectType": "workplace",
+    "expectedCategories": ["Län", "Arbetsställestatus"],
+    "questionClass": "workplaces_in_region",
+    "answerable": true,
+    "notes": "Ligger = belägenhet = AE.",
+    "layoutTrap": { "unknownName": "Säteslän", "objectType": "workplace", "hintIncludes": "Län" }
+  },
+  {
+    "id": "q06",
+    "question": "Hitta företag vars namn innehåller Volvo.",
+    "expectedObjectType": "company",
+    "expectedCategories": ["Företagsstatus"],
+    "expectedVariables": ["Företagsnamn", "Firma"],
+    "questionClass": "name_contains",
+    "answerable": true,
+    "notes": "Operator Innehaller. Firma ≠ Företagsnamn."
+  },
+  {
+    "id": "q07",
+    "question": "Arbetsställen som heter något med Handel.",
+    "expectedObjectType": "workplace",
+    "expectedCategories": ["Arbetsställestatus"],
+    "expectedVariables": ["Benämning"],
+    "questionClass": "name_contains",
+    "answerable": true,
+    "notes": "AE-namn är Benämning, inte Företagsnamn."
+  },
+  {
+    "id": "q08",
+    "question": "Företag med 10–19 anställda i Sverige.",
+    "expectedObjectType": "both",
+    "expectedCategories": ["Storleksklass Anställda"],
+    "questionClass": "employee_size",
+    "answerable": true,
+    "notes": "Storleksklass, inte AnstSME om frågan är 10–19. Hela Sverige blir ofta QUERY_TOO_BROAD — räkna, lista inte.",
+    "lookup": { "query": "10-19", "objectType": "company", "expectedCategory": "Storleksklass Anställda", "expectedCode": "4" }
+  },
+  {
+    "id": "q09",
+    "question": "Vad vet SCB om organisationsnummer 556074-7569?",
+    "expectedObjectType": "company",
+    "expectedCategories": [],
+    "expectedVariables": ["PeOrgNr", "OrgNr"],
+    "questionClass": "organization_number",
+    "answerable": true,
+    "notes": "10→12 siffror, prefix 16, operator ArLikaMed.",
+    "identity": { "input": "556074-7569", "kind": "peOrgNr", "expected": "165560747569" }
+  },
+  {
+    "id": "q10",
+    "question": "Slå upp arbetsställe CFAR 12345678.",
+    "expectedObjectType": "workplace",
+    "expectedCategories": [],
+    "expectedVariables": ["CfarNr"],
+    "questionClass": "organization_number",
+    "answerable": true,
+    "notes": "CfarNr 8 siffror, ArLikaMed.",
+    "identity": { "input": "12345678", "kind": "cfarNr", "expected": "12345678" }
+  },
+  {
+    "id": "q11",
+    "question": "Alla AE för företaget med PeOrgNr 165560747569.",
+    "expectedObjectType": "workplace",
+    "expectedCategories": [],
+    "expectedVariables": ["PeOrgNr"],
+    "questionClass": "organization_number",
+    "answerable": true,
+    "notes": "AE-sök på PeOrgNr, inte sammanslagen layout."
+  },
+  {
+    "id": "q12",
+    "question": "Aktiva aktiebolag med säte i Gävle kommun.",
+    "expectedObjectType": "company",
+    "expectedCategories": ["Säteskommun", "Företagsstatus"],
+    "questionClass": "companies_in_region",
+    "answerable": true,
+    "notes": "Juridisk form är extra kategori om kontot har den. Kommun på JE är Säteskommun."
+  },
+  {
+    "id": "q13",
+    "question": "Dataprogrammering i Stockholms län, arbetsställen.",
+    "expectedObjectType": "workplace",
+    "expectedCategories": ["Bransch", "Län", "Arbetsställestatus"],
+    "questionClass": "industry_and_place",
+    "answerable": true,
+    "notes": "SNI via lookup, inte fritext.",
+    "lookup": { "query": "Dataprogrammering", "objectType": "workplace", "expectedCategory": "Bransch", "expectedCode": "62010" }
+  },
+  {
+    "id": "q14",
+    "question": "Verksamma arbetsställen i kommun 2180.",
+    "expectedObjectType": "workplace",
+    "expectedCategories": ["Kommun", "Arbetsställestatus"],
+    "questionClass": "workplaces_in_region",
+    "answerable": true,
+    "notes": "Kod 2180 = Gävle i mock-katalogen."
+  },
+  {
+    "id": "q15",
+    "question": "Hur många verksamma företag finns det?",
+    "expectedObjectType": "company",
+    "expectedCategories": ["Företagsstatus"],
+    "questionClass": "companies_in_region",
+    "answerable": true,
+    "notes": "Bara status → count. Search blir QUERY_TOO_BROAD."
+  },
+  {
+    "id": "q16",
+    "question": "Byggverksamhet avdelning F i Gävleborg.",
+    "expectedObjectType": "workplace",
+    "expectedCategories": ["Bransch", "Län", "Arbetsställestatus"],
+    "questionClass": "industry_and_place",
+    "answerable": true,
+    "notes": "Avdelning F, ev. branchLevel. Lookup bygg.",
+    "lookup": { "query": "Byggverksamhet", "objectType": "workplace", "expectedCategory": "Bransch", "expectedCode": "F" }
+  },
+  {
+    "id": "q17",
+    "question": "Företag som heter något med Bygg i Gävleborg.",
+    "expectedObjectType": "company",
+    "expectedCategories": ["Säteslän", "Företagsstatus"],
+    "expectedVariables": ["Företagsnamn", "Firma"],
+    "questionClass": "name_contains",
+    "answerable": true,
+    "notes": "Namncontains är inte SNI. Annan population än bransch Bygg."
+  },
+  {
+    "id": "q18",
+    "question": "Storleksklass 20–49 anställda på arbetsställen i länet.",
+    "expectedObjectType": "workplace",
+    "expectedCategories": ["Storleksklass Anställda", "Län"],
+    "questionClass": "employee_size",
+    "answerable": true,
+    "notes": "Inte AnstSME. Inte exakt 37 anställda."
+  },
+  {
+    "id": "q19",
+    "question": "Jämför antal arbetsställen per kommun i Gävleborg för SNI F.",
+    "expectedObjectType": "workplace",
+    "expectedCategories": ["Län", "Kommun", "Bransch", "Arbetsställestatus"],
+    "questionClass": "industry_and_place",
+    "answerable": true,
+    "notes": "Flera count, inte en search. Agenten loopar kommuner; servern gör det inte automatiskt."
+  },
+  {
+    "id": "q20",
+    "question": "Ogiltigt org.nr ABC.",
+    "expectedObjectType": "company",
+    "expectedCategories": [],
+    "questionClass": "organization_number",
+    "answerable": false,
+    "notes": "Garbage identity ska avvisas lokalt.",
+    "identity": { "input": "ABC", "kind": "peOrgNr", "invalid": true }
+  },
+  {
+    "id": "q21",
+    "question": "Lista alla byggföretag i Sverige med namn och telefon.",
+    "expectedObjectType": "none",
+    "expectedCategories": [],
+    "answerable": false,
+    "notes": "Population ≫ 2000, ingen paginering, telefon är tillägg, Reklam får inte rundas."
+  },
+  {
+    "id": "q22",
+    "question": "Hur såg Volvo ut 2019?",
+    "expectedObjectType": "none",
+    "expectedCategories": [],
+    "answerable": false,
+    "notes": "Ingen historik i AFR-API:et."
+  },
+  {
+    "id": "q23",
+    "question": "Vem äger företaget och hur ser koncernen ut?",
+    "expectedObjectType": "none",
+    "expectedCategories": [],
+    "answerable": false,
+    "notes": "Ägare/koncernträd finns inte i detta API."
+  },
+  {
+    "id": "q24",
+    "question": "Sveriges 50 största företag.",
+    "expectedObjectType": "none",
+    "expectedCategories": [],
+    "answerable": false,
+    "notes": "Ingen ranking. Anställda/omsättning är klasser, inte exakta tal att sortera på."
+  },
+  {
+    "id": "q25",
+    "question": "Exakt hur många anställda har bolaget?",
+    "expectedObjectType": "none",
+    "expectedCategories": [],
+    "answerable": false,
+    "notes": "Sekretess: bara storleksklass."
+  },
+  {
+    "id": "q26",
+    "question": "Mejla alla byggföretag i länet.",
+    "expectedObjectType": "none",
+    "expectedCategories": [],
+    "answerable": false,
+    "notes": "Reklamspärr. Servern strippar inte Reklam och är inte ett utskicksverktyg."
+  },
+  {
+    "id": "q27",
+    "question": "Vilka är de mest innovativa techbolagen i Stockholm?",
+    "expectedObjectType": "none",
+    "expectedCategories": [],
+    "answerable": false,
+    "notes": "Semantik som registret inte har."
+  },
+  {
+    "id": "q28",
+    "question": "Visa officiell statistik / BNP för byggbranschen.",
+    "expectedObjectType": "none",
+    "expectedCategories": [],
+    "answerable": false,
+    "notes": "PxWeb/statistikdatabasen, inte AFR-mikrodata."
+  },
+  {
+    "id": "q29",
+    "question": "Nya företag sedan i fjol i kommunen.",
+    "expectedObjectType": "none",
+    "expectedCategories": [],
+    "answerable": false,
+    "notes": "Ingen delta/avisering i avgiftsfria API:et."
+  },
+  {
+    "id": "q30",
+    "question": "Hämta webbplats och verkliga huvudmän.",
+    "expectedObjectType": "none",
+    "expectedCategories": [],
+    "answerable": false,
+    "notes": "Berikning utanför AFR. MCP skrapar inte webben."
+  },
+  {
+    "id": "q31",
+    "question": "Företag med status verksam i Säteslän 21.",
+    "expectedObjectType": "company",
+    "expectedCategories": ["Säteslän", "Företagsstatus"],
+    "questionClass": "companies_in_region",
+    "answerable": true,
+    "notes": "Kod 21 redan känd; lookup Gävleborg ger samma.",
+    "lookup": { "query": "verksam", "objectType": "company", "expectedCategory": "Företagsstatus", "expectedCode": "1" }
+  },
+  {
+    "id": "q32",
+    "question": "Arbetsställestatus verksam plus län Gävleborg — förklara frågan innan anrop.",
+    "expectedObjectType": "workplace",
+    "expectedCategories": ["Arbetsställestatus", "Län"],
+    "questionClass": "workplaces_in_region",
+    "answerable": true,
+    "notes": "Bra kandidat för scb_explain_query. AE-status är toppnivå i POST."
+  }
+]

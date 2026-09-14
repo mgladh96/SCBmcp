@@ -104,6 +104,60 @@ export function isAllowedOperator(value: string): value is ScbOperator {
   return OPERATOR_SET.has(value);
 }
 
+export function operatorInfo(name: string): ScbOperatorInfo | undefined {
+  return SCB_OPERATORS.find((item) => item.name === name);
+}
+
+export type OperatorIssue = {
+  variable: string;
+  operator: string;
+  message: string;
+};
+
+export function validateVariableOperators(
+  variables: Array<{ variable: string; operator: string; value?: string | undefined; value2?: string | undefined }>,
+): OperatorIssue[] {
+  const issues: OperatorIssue[] = [];
+  for (const item of variables) {
+    if (!isAllowedOperator(item.operator)) {
+      issues.push({
+        variable: item.variable,
+        operator: item.operator,
+        message: `Okänd operator "${item.operator}". Tillåtna: ${SCB_OPERATOR_NAMES.join(", ")}.`,
+      });
+      continue;
+    }
+    const info = operatorInfo(item.operator);
+    if (!info) {
+      continue;
+    }
+    const hasValue = item.value !== undefined && item.value !== "";
+    const hasValue2 = item.value2 !== undefined && item.value2 !== "";
+    if (info.arity === 0 && (hasValue || hasValue2)) {
+      issues.push({
+        variable: item.variable,
+        operator: item.operator,
+        message: `${item.operator} tar inget Varde1/Varde2.`,
+      });
+    }
+    if (info.arity >= 1 && !hasValue) {
+      issues.push({
+        variable: item.variable,
+        operator: item.operator,
+        message: `${item.operator} kräver Varde1.`,
+      });
+    }
+    if (info.arity === 2 && !hasValue2) {
+      issues.push({
+        variable: item.variable,
+        operator: item.operator,
+        message: `${item.operator} kräver Varde2 (Mellan).`,
+      });
+    }
+  }
+  return issues;
+}
+
 export function typicalOperatorsForVariableKind(kind: string): ScbOperator[] {
   switch (kind) {
     case "identity":

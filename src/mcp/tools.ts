@@ -1,15 +1,19 @@
-import { branchLevelWarnings, DEFAULT_CATEGORY_VALUES_LIMIT, filterHintsFor } from "../domain/catalog.js";
+import { DEFAULT_CATEGORY_VALUES_LIMIT, filterHintsFor } from "../domain/catalog.js";
 import { ScbError } from "../domain/errors.js";
+import { collectQueryWarnings, UNBOUNDED_QUERY_WARNING } from "../domain/query-warnings.js";
 import { createLogger } from "../log.js";
 import type { ScbClient } from "../scb/client.js";
+import { explainQuery } from "../scb/explain.js";
+import { identityInvalidErrorDetails, normalizeIdentityInFilters } from "../scb/identity.js";
 import { SCB_OPERATOR_NAMES } from "../scb/operators.js";
 import { toMetadataEnvelope, truncateMetadataItems } from "../scb/payload.js";
+import { projectSearchResults } from "../scb/projection.js";
 import {
   countCompaniesInputSchema,
   countWorkplacesInputSchema,
+  explainQueryInputSchema,
   filterHintsInputSchema,
   getCategoryValuesInputSchema,
-  isUnboundedFilters,
   listCategoriesInputSchema,
   listVariablesInputSchema,
   lookupCodesInputSchema,
@@ -18,10 +22,9 @@ import {
   searchWorkplacesInputSchema,
   type ScbFilters,
 } from "../scb/schemas.js";
-import { SOURCE_LABEL, SOURCE_PROVIDER, SOURCE_REGISTRY } from "../scb/types.js";
+import { SOURCE_LABEL, SOURCE_PROVIDER, SOURCE_REGISTRY, type ObjectType } from "../scb/types.js";
 
-export const UNBOUNDED_QUERY_WARNING =
-  "Obegränsad fråga: tomma filter matchar hela JE/AE-populationen och ger nästan alltid QUERY_TOO_BROAD vid hämtning. Lägg på status, geografi, SNI eller storleksklass från listverktygen.";
+export { UNBOUNDED_QUERY_WARNING };
 
 export type ToolResult = {
   content: Array<{ type: "text"; text: string }>;
@@ -69,13 +72,14 @@ function invalidInput(tool: string, error: { flatten: () => unknown; issues: Arr
 
 function withFilterWarning<T extends Record<string, unknown>>(
   payload: T,
+  objectType: ObjectType,
   filters: ScbFilters,
+  extraWarnings: string[] = [],
 ): T & { warning?: string; warnings?: string[] } {
-  const warnings: string[] = [];
-  if (isUnboundedFilters(filters)) {
-    warnings.push(UNBOUNDED_QUERY_WARNING);
-  }
-  warnings.push(...branchLevelWarnings(filters));
+  const warnings = unique([
+    ...collectQueryWarnings(objectType, filters),
+    ...extraWarnings,
+  ]);
   if (warnings.length === 0) {
     return payload;
   }
@@ -84,6 +88,79 @@ function withFilterWarning<T extends Record<string, unknown>>(
     warnings,
   };
   return { ...payload, ...extra };
+}
+
+function unique(values: string[]): string[] {
+  return [...new Set(values)];
+}
+
+function preparedFilters(
+  objectType: ObjectType,
+  filters: ScbFilters,
+): { filters: ScbFilters; warnings: string[]; error?: string } {
+  const identity = normalizeIdentityInFilters(filters, objectType);
+  if (identity.error) {
+    return { filters, warnings: identity.warnings, error: identity.error };
+  }
+  return { filters: identity.filters, warnings: identity.warnings };
+}
+
+function identityErrorResult(message: string): ToolResult {
+  return errorResult(
+    new ScbError("SCB_INVALID_QUERY", message, false, identityInvalidErrorDetails(message)),
+  );
+}
+
+function searchSource(): { provider: string; registry: string } {
+  return { provider: SOURCE_PROVIDER, registry: SOURCE_REGISTRY };
+}
+
+function searchEnvelope(
+  objectType: ObjectType,
+  options: {
+    count: number;
+    results: unknown[];
+    filters: ScbFilters;
+    fields?: string[] | undefined;
+    maxRows?: number | undefined;
+    skippedFetch?: boolean | undefined;
+    countFromCache?: boolean | undefined;
+    extraWarnings?: string[] | undefined;
+  },
+): Record<string, unknown> {
+  const projected = projectSearchResults(options.results, objectType, {
+    ...(options.fields ? { fields: options.fields } : {}),
+    ...(options.maxRows !== undefined ? { maxRows: options.maxRows } : {}),
+  });
+  const extraWarnings = [...(options.extraWarnings ?? [])];
+  if (!projected.reklamPreserved) {
+    extraWarnings.push("Reklam saknades i SCB-raderna; fältet strippas aldrig av MCP.");
+  }
+  if (projected.omittedByMaxRows > 0) {
+    extraWarnings.push(
+      `MCP-svaret trunkerades till maxRows=${projected.maxRows} (SCB hämtade ${projected.fetched} rader; fields/maxRows minskar bara agentvyn, inte SCB-anropet).`,
+    );
+  }
+  const payload: Record<string, unknown> = {
+    count: options.count,
+    fetched: projected.fetched,
+    returned: projected.returned,
+    results: projected.results,
+    filters: options.filters,
+    source: searchSource(),
+    projectedFields: projected.projectedFields,
+    maxRows: projected.maxRows,
+  };
+  if (projected.omittedByMaxRows > 0) {
+    payload.omittedByMaxRows = projected.omittedByMaxRows;
+  }
+  if (options.skippedFetch) {
+    payload.skippedFetch = true;
+  }
+  if (options.countFromCache) {
+    payload.countFromCache = true;
+  }
+  return withFilterWarning(payload, objectType, options.filters, extraWarnings);
 }
 
 export function createToolHandlers(client: ScbClient, log = createLogger()) {
@@ -201,9 +278,13 @@ export function createToolHandlers(client: ScbClient, log = createLogger()) {
       if (!parsed.success) {
         return errorResult(invalidInput("scb_count_companies", parsed.error));
       }
+      const prepared = preparedFilters("company", parsed.data.filters);
+      if (prepared.error) {
+        return identityErrorResult(prepared.error);
+      }
       const started = Date.now();
       try {
-        const count = await client.countCompanies(parsed.data.filters);
+        const count = await client.countCompanies(prepared.filters);
         log.info("MCP tool", {
           tool: "scb_count_companies",
           durationMs: Date.now() - started,
@@ -215,10 +296,12 @@ export function createToolHandlers(client: ScbClient, log = createLogger()) {
             {
               count,
               objectType: "company",
-              filters: parsed.data.filters,
+              filters: prepared.filters,
               source: SOURCE_LABEL,
             },
-            parsed.data.filters,
+            "company",
+            prepared.filters,
+            prepared.warnings,
           ),
         );
       } catch (error) {
@@ -232,10 +315,14 @@ export function createToolHandlers(client: ScbClient, log = createLogger()) {
       if (!parsed.success) {
         return errorResult(invalidInput("scb_search_companies", parsed.error));
       }
+      const prepared = preparedFilters("company", parsed.data.filters);
+      if (prepared.error) {
+        return identityErrorResult(prepared.error);
+      }
       const started = Date.now();
       try {
         const { count, results, skippedFetch, countFromCache } = await client.searchCompanies(
-          parsed.data.filters,
+          prepared.filters,
         );
         log.info("MCP tool", {
           tool: "scb_search_companies",
@@ -245,18 +332,16 @@ export function createToolHandlers(client: ScbClient, log = createLogger()) {
           ...(countFromCache ? { cacheHit: true } : {}),
         });
         return jsonResult(
-          withFilterWarning(
-            {
-              count,
-              returned: results.length,
-              results,
-              filters: parsed.data.filters,
-              source: { provider: SOURCE_PROVIDER, registry: SOURCE_REGISTRY },
-              ...(skippedFetch ? { skippedFetch: true } : {}),
-              ...(countFromCache ? { countFromCache: true } : {}),
-            },
-            parsed.data.filters,
-          ),
+          searchEnvelope("company", {
+            count,
+            results,
+            filters: prepared.filters,
+            fields: parsed.data.fields,
+            maxRows: parsed.data.maxRows,
+            skippedFetch,
+            countFromCache,
+            extraWarnings: prepared.warnings,
+          }),
         );
       } catch (error) {
         logToolError("scb_search_companies", started, error);
@@ -269,9 +354,13 @@ export function createToolHandlers(client: ScbClient, log = createLogger()) {
       if (!parsed.success) {
         return errorResult(invalidInput("scb_count_workplaces", parsed.error));
       }
+      const prepared = preparedFilters("workplace", parsed.data.filters);
+      if (prepared.error) {
+        return identityErrorResult(prepared.error);
+      }
       const started = Date.now();
       try {
-        const count = await client.countWorkplaces(parsed.data.filters);
+        const count = await client.countWorkplaces(prepared.filters);
         log.info("MCP tool", {
           tool: "scb_count_workplaces",
           durationMs: Date.now() - started,
@@ -283,10 +372,12 @@ export function createToolHandlers(client: ScbClient, log = createLogger()) {
             {
               count,
               objectType: "workplace",
-              filters: parsed.data.filters,
+              filters: prepared.filters,
               source: SOURCE_LABEL,
             },
-            parsed.data.filters,
+            "workplace",
+            prepared.filters,
+            prepared.warnings,
           ),
         );
       } catch (error) {
@@ -300,10 +391,14 @@ export function createToolHandlers(client: ScbClient, log = createLogger()) {
       if (!parsed.success) {
         return errorResult(invalidInput("scb_search_workplaces", parsed.error));
       }
+      const prepared = preparedFilters("workplace", parsed.data.filters);
+      if (prepared.error) {
+        return identityErrorResult(prepared.error);
+      }
       const started = Date.now();
       try {
         const { count, results, skippedFetch, countFromCache } = await client.searchWorkplaces(
-          parsed.data.filters,
+          prepared.filters,
         );
         log.info("MCP tool", {
           tool: "scb_search_workplaces",
@@ -313,23 +408,37 @@ export function createToolHandlers(client: ScbClient, log = createLogger()) {
           ...(countFromCache ? { cacheHit: true } : {}),
         });
         return jsonResult(
-          withFilterWarning(
-            {
-              count,
-              returned: results.length,
-              results,
-              filters: parsed.data.filters,
-              source: { provider: SOURCE_PROVIDER, registry: SOURCE_REGISTRY },
-              ...(skippedFetch ? { skippedFetch: true } : {}),
-              ...(countFromCache ? { countFromCache: true } : {}),
-            },
-            parsed.data.filters,
-          ),
+          searchEnvelope("workplace", {
+            count,
+            results,
+            filters: prepared.filters,
+            fields: parsed.data.fields,
+            maxRows: parsed.data.maxRows,
+            skippedFetch,
+            countFromCache,
+            extraWarnings: prepared.warnings,
+          }),
         );
       } catch (error) {
         logToolError("scb_search_workplaces", started, error);
         return errorResult(error);
       }
+    },
+
+    async scb_explain_query(input: unknown): Promise<ToolResult> {
+      const parsed = explainQueryInputSchema.safeParse(input);
+      if (!parsed.success) {
+        return errorResult(invalidInput("scb_explain_query", parsed.error));
+      }
+      const started = Date.now();
+      const explained = explainQuery(parsed.data.objectType, parsed.data.filters);
+      log.info("MCP tool", {
+        tool: "scb_explain_query",
+        durationMs: Date.now() - started,
+        status: 200,
+        objectType: parsed.data.objectType,
+      });
+      return jsonResult(explained);
     },
 
     async scb_schema_summary(input: unknown): Promise<ToolResult> {
