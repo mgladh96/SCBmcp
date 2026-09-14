@@ -1,81 +1,81 @@
-# SCB Allmänna företagsregister MCP server
+# SCB Allmänna företagsregister MCP-server
 
-MCP server that exposes **SCB:s Allmänna företagsregister** to AI agents.
+MCP-server som ger AI-agenter åtkomst till **SCB:s Allmänna företagsregister**.
 
-It is only a data access layer for that API. It does not search other sources, enrich records, scrape websites, or run an LLM.
+Den är bara ett dataåtkomstlager för det API:et. Den söker inte i andra källor, berikar inte poster, skrapar inte webbplatser och kör ingen LLM.
 
-## What this server does
+## Vad servern gör
 
-An agent can:
+En agent kan:
 
-1. Inspect categories and variables the configured SCB account may use
-2. Resolve code tables for a category
-3. Count companies (JE, juridisk enhet)
-4. Retrieve companies when the match count is ≤ 2,000
-5. Count workplaces (AE, arbetsställe)
-6. Retrieve workplaces
+1. Inspektera kategorier och variabler som det konfigurerade SCB-kontot får använda
+2. Hämta kodtabeller för en kategori
+3. Räkna företag (JE, juridisk enhet)
+4. Hämta företag när antalet träffar är ≤ 2 000
+5. Räkna arbetsställen (AE, arbetsställe)
+6. Hämta arbetsställen
 
-JE and AE stay explicit. They are not hidden behind generic “provider” types.
+JE och AE anges alltid explicit. De döljs inte bakom generiska ”provider”-typer.
 
-## Architecture
+## Arkitektur
 
 ```
-AI Agent
+AI-agent
    ↓
-MCP Server (HTTP + SSE)
+MCP-server (HTTP + SSE)
 http://127.0.0.1:3000/sse
    ↓
-SCB Client (mTLS, rate limit, 2,000-row guard)
+SCB-klient (mTLS, rate limit, skydd mot mer än 2 000 rader)
    ↓
 SCB Allmänna företagsregister API
 https://privateapi.scb.se/nv0101/v1/sokpavar/
 ```
 
-The MCP layer validates tool input and returns JSON. The SCB client owns HTTP, the client certificate, endpoint paths, and POST body serialization.
+MCP-lagret validerar verktygsinmatning och returnerar JSON. SCB-klienten ansvarar för HTTP, klientcertifikatet, sökvägar till endpoints och serialisering av POST-kroppar.
 
-## Requirements
+## Förutsättningar
 
 - Node.js 22+
 - pnpm
-- An SCB client certificate (`.pfx`) and password issued by SCB
-- The API-id from the certificate name (`AXXXXX`)
+- Ett SCB-klientcertifikat (`.pfx`) och lösenord utfärdat av SCB
+- API-id från certifikatnamnet (`AXXXXX`)
 
-Request access via [SCB:s information about the API](https://www.scb.se/vara-tjanster/bestall-data-och-statistik/foretagsregistret/avgiftsfria-uppgifter-i-foretagsregistret/) (`scbforetag@scb.se`).
+Ansök om åtkomst via [SCB:s information om API:et](https://www.scb.se/vara-tjanster/bestall-data-och-statistik/foretagsregistret/avgiftsfria-uppgifter-i-foretagsregistret/) (`scbforetag@scb.se`).
 
-## SCB certificate configuration
+## Konfiguration av SCB-certifikat
 
-SCB authenticates with a client certificate, not a login form.
+SCB autentiserar med klientcertifikat, inte med inloggningsformulär.
 
-1. Store the `.pfx` file somewhere the MCP process can read. Do not commit it.
-2. Keep the password in the environment, never in source.
-3. Use `SCB_API_ID` from the certificate name (`AXXXXX`).
+1. Lägg `.pfx`-filen där MCP-processen kan läsa den. Lägg den inte i git.
+2. Förvara lösenordet i miljön, aldrig i källkoden.
+3. Använd `SCB_API_ID` från certifikatnamnet (`AXXXXX`).
 
-Certificate handling lives in `src/scb/auth.ts`. The rest of the server never sees the private key bytes except through the TLS dispatcher.
+Certifikathantering ligger i `src/scb/auth.ts`. Resten av servern ser aldrig den privata nyckelns bytes annat än via TLS-dispatcher.
 
-Help pages (certificate required):
+Hjälpsidor (certifikat krävs):
 
 - https://privateapi.scb.se/nv0101/v1/sokpavar/help
 - https://privateapi.scb.se/nv0101/v1/sokpavar/help/exampleJe
 - https://privateapi.scb.se/nv0101/v1/sokpavar/help/exampleAe
 
-## Environment variables
+## Miljövariabler
 
-| Variable | Required | Description |
+| Variabel | Obligatorisk | Beskrivning |
 | --- | --- | --- |
-| `SCB_BASE_URL` | no | Default `https://privateapi.scb.se/nv0101/v1/sokpavar` |
-| `SCB_API_ID` | yes | API-id from the certificate name |
-| `SCB_CERT_PATH` | yes | Path to the `.pfx` file |
-| `SCB_CERT_PASSWORD` | yes | Certificate password |
-| `SCB_API_ID_HEADER` | no | Header name for the API-id. Default `api-id`. Confirm against SCB help if calls are rejected. |
-| `SCB_LOG_LEVEL` | no | `debug`, `info`, or `error`. Logs go to stderr. The MCP auth token is never logged. |
-| `MCP_HOST` | no | Bind address. Default `127.0.0.1`. Non-loopback binds (e.g. `0.0.0.0`) require `MCP_AUTH_TOKEN`. |
-| `MCP_PORT` | no | HTTP port. Default `3000`. |
-| `MCP_AUTH_TOKEN` | recommended | Shared secret for MCP HTTP/SSE (`/sse`, `/messages`). Required when `MCP_HOST` is not loopback. |
-| `SCB_LIVE_TESTS` | no | Set to `true` only when running live SCB tests |
+| `SCB_BASE_URL` | nej | Standard `https://privateapi.scb.se/nv0101/v1/sokpavar` |
+| `SCB_API_ID` | ja | API-id från certifikatnamnet |
+| `SCB_CERT_PATH` | ja | Sökväg till `.pfx`-filen |
+| `SCB_CERT_PASSWORD` | ja | Certifikatlösenord |
+| `SCB_API_ID_HEADER` | nej | Headernamn för API-id. Standard `api-id`. Kontrollera mot SCB:s hjälpsidor om anrop avvisas. |
+| `SCB_LOG_LEVEL` | nej | `debug`, `info` eller `error`. Loggar går till stderr. MCP-autentiseringstoken loggas aldrig. |
+| `MCP_HOST` | nej | Bindadress. Standard `127.0.0.1`. Bindning mot annat än loopback (t.ex. `0.0.0.0`) kräver `MCP_AUTH_TOKEN`. |
+| `MCP_PORT` | nej | HTTP-port. Standard `3000`. |
+| `MCP_AUTH_TOKEN` | rekommenderas | Delad hemlighet för MCP HTTP/SSE (`/sse`, `/messages`). Obligatorisk när `MCP_HOST` inte är loopback. |
+| `SCB_LIVE_TESTS` | nej | Sätt till `true` endast när du kör live-tester mot SCB |
 
-Copy `.env.example`. Do not put secrets in git.
+Kopiera `.env.example`. Lägg inte hemligheter i git.
 
-Generate a token:
+Generera en token:
 
 ```bash
 node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
@@ -87,37 +87,37 @@ node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 pnpm install
 ```
 
-## Running locally
+## Köra lokalt
 
 ```bash
 pnpm dev
 ```
 
-Or build:
+Eller bygg:
 
 ```bash
 pnpm build
 pnpm start
 ```
 
-The process is an HTTP server. MCP uses **SSE**:
+Processen är en HTTP-server. MCP använder **SSE**:
 
-- Health / URL info: `http://127.0.0.1:3000/health` (no MCP auth; does not expose secrets)
-- SSE (clients connect here): `http://127.0.0.1:3000/sse`
+- Health / URL-info: `http://127.0.0.1:3000/health` (ingen MCP-autentisering; exponerar inga hemligheter)
+- SSE (klienter ansluter här): `http://127.0.0.1:3000/sse`
 - Message POST: `http://127.0.0.1:3000/messages?sessionId=...`
 
-When `MCP_AUTH_TOKEN` is set, `/sse` and `/messages` require it. Send either:
+När `MCP_AUTH_TOKEN` är satt krävs den för `/sse` och `/messages`. Skicka antingen:
 
 - `Authorization: Bearer <token>`
 - `X-MCP-Auth: <token>`
 
-Unauthenticated MCP requests receive **401**. Startup logs `auth: "required"` or `auth: "disabled"` — never the token value.
+Oautentiserade MCP-anrop får **401**. Vid uppstart loggas `auth: "required"` eller `auth: "disabled"` — aldrig tokenvärdet.
 
-Logs go to stderr.
+Loggar går till stderr.
 
-## Connecting from Cursor / Claude / another MCP client
+## Ansluta från Cursor / Claude / annan MCP-klient
 
-Start this server first, then point the client at the SSE URL and send the same token as `MCP_AUTH_TOKEN`. Example Cursor config is in `examples/mcp.json`:
+Starta servern först, peka sedan klienten mot SSE-URL:en och skicka samma token som `MCP_AUTH_TOKEN`. Exempel på Cursor-konfiguration finns i `examples/mcp.json`:
 
 ```json
 {
@@ -132,31 +132,31 @@ Start this server first, then point the client at the SSE URL and send the same 
 }
 ```
 
-`${env:MCP_AUTH_TOKEN}` is resolved by Cursor from the **client** environment. The value must match the server process `MCP_AUTH_TOKEN`.
+Cursor hämtar `${env:MCP_AUTH_TOKEN}` från **klientens** miljö. Värdet måste matcha serverns `MCP_AUTH_TOKEN`.
 
-SCB certificate settings stay in the server process environment (`.env`), not in the MCP client config.
+SCB-certifikatinställningar ligger i serverns processmiljö (`.env`), inte i MCP-klientens konfiguration.
 
-## MCP HTTP authentication and bind safety
+## MCP HTTP-autentisering och säker bindning
 
-The SCB client certificate authenticates this process **to SCB**. A separate shared secret authenticates **MCP clients to this server**, so anyone who can reach the port cannot burn SCB quota.
+SCB-klientcertifikatet autentiserar den här processen **mot SCB**. En separat delad hemlighet autentiserar **MCP-klienter mot den här servern**, så att vem som helst som når porten inte kan förbruka SCB-kvoten.
 
-- Set `MCP_AUTH_TOKEN` even on localhost. Loopback without a token still starts (for local probes), but `/sse` and `/messages` are then unauthenticated.
-- Binding to a non-loopback address (`0.0.0.0`, `::`, a LAN IP) **refuses to start** unless `MCP_AUTH_TOKEN` is set.
-- CORS is not `Access-Control-Allow-Origin: *`. Loopback `Origin` values may be reflected; `Authorization` and `X-MCP-Auth` are allowed headers.
+- Sätt `MCP_AUTH_TOKEN` även på localhost. Loopback utan token startar fortfarande (för lokala kontroller), men `/sse` och `/messages` är då oautentiserade.
+- Bindning mot en adress som inte är loopback (`0.0.0.0`, `::`, en LAN-IP) **vägrar att starta** om inte `MCP_AUTH_TOKEN` är satt.
+- CORS är inte `Access-Control-Allow-Origin: *`. Loopback-`Origin`-värden kan speglas; `Authorization` och `X-MCP-Auth` är tillåtna headers.
 
-## Available MCP tools
+## Tillgängliga MCP-verktyg
 
-| Tool | Purpose |
+| Verktyg | Syfte |
 | --- | --- |
-| `scb_list_categories` | Categories for `company` (JE) or `workplace` (AE). Optional `includeCodeTables`. |
-| `scb_get_category_values` | Code table for one SCB category |
-| `scb_list_variables` | Variables for the account. Optional `includeValueMetadata`. |
-| `scb_count_companies` | Count JE matches |
-| `scb_search_companies` | Fetch JE matches (counts first; refuses > 2,000) |
-| `scb_count_workplaces` | Count AE matches |
-| `scb_search_workplaces` | Fetch AE matches (counts first; refuses > 2,000) |
+| `scb_list_categories` | Kategorier för `company` (JE) eller `workplace` (AE). Valfri `includeCodeTables`. |
+| `scb_get_category_values` | Kodtabell för en SCB-kategori |
+| `scb_list_variables` | Variabler för kontot. Valfri `includeValueMetadata`. |
+| `scb_count_companies` | Räkna JE-träffar |
+| `scb_search_companies` | Hämta JE-träffar (räknar först; avvisar > 2 000) |
+| `scb_count_workplaces` | Räkna AE-träffar |
+| `scb_search_workplaces` | Hämta AE-träffar (räknar först; avvisar > 2 000) |
 
-Filter contract (close to SCB, not a natural-language DSL):
+Filterkontrakt (nära SCB, inte ett DSL för naturligt språk):
 
 ```json
 {
@@ -174,34 +174,34 @@ Filter contract (close to SCB, not a natural-language DSL):
 }
 ```
 
-Use category and variable **names as SCB returns them** from the metadata tools. Do not hardcode a private schema. Operators are passed through to SCB; confirm legal operators on the SCB help pages.
+Använd **kategori- och variabelnamn som SCB returnerar dem** från metadataverktygen. Hårdkoda inte ett eget schema. Operatorer skickas vidare till SCB; kontrollera tillåtna operatorer på SCB:s hjälpsidor.
 
-Search tools return SCB field names as received, including `Reklam` when SCB includes it. This server does not strip marketing restrictions and is not a way to bypass them.
+Sökverktygen returnerar SCB-fältnamn som de tas emot, inklusive `Reklam` när SCB inkluderar det. Servern tar inte bort reklamspärrar och är inte ett sätt att kringgå dem.
 
-## Example agent workflow
+## Exempel på agentflöde
 
-User: “Find active construction companies in Gävleborg with 10-49 employees.”
+Användare: ”Hitta aktiva byggföretag i Gävleborg med 10–49 anställda.”
 
-The **agent** (not this server) should:
+**Agenten** (inte den här servern) bör:
 
-1. `scb_list_categories` / `scb_list_variables` for `objectType: "company"` (and workplaces if the question is really about AE)
-2. `scb_get_category_values` for SNI/bransch, län, företagsstatus, employee size class, and any other needed category
-3. `scb_count_companies` with those codes
-4. If count is 0, stop. If count > 2000, narrow filters. If count ≤ 2000, continue
+1. `scb_list_categories` / `scb_list_variables` för `objectType: "company"` (och arbetsställen om frågan egentligen gäller AE)
+2. `scb_get_category_values` för SNI/bransch, län, företagsstatus, storleksklass för anställda och andra nödvändiga kategorier
+3. `scb_count_companies` med de koderna
+4. Om count är 0, stanna. Om count > 2000, begränsa filtren. Om count ≤ 2000, fortsätt
 5. `scb_search_companies`
-6. Reason over the returned SCB JSON
+6. Resonera utifrån JSON:en som SCB returnerar
 
-Gävleborg is a **län** on arbetsställe in SCB’s variabelbeskrivning; säteslän is the company-level equivalent. The agent must take that from SCB metadata, not from this README.
+Gävleborg är ett **län** på arbetsställe i SCB:s variabelbeskrivning; säteslän är motsvarigheten på företagsnivå. Agenten måste hämta det från SCB-metadata, inte från den här README:n.
 
-## SCB limits
+## SCB-gränser
 
-- Maximum **2,000** rows per retrieve call
-- **No pagination**
-- **10** calls per **10 seconds** per user
-- HTTP **503** during outages
-- Current information only (no history in this API)
+- Högst **2 000** rader per hämtningsanrop
+- **Ingen paginering**
+- **10** anrop per **10 sekunder** per användare
+- HTTP **503** vid driftstörningar
+- Endast aktuell information (ingen historik i det här API:et)
 
-If count > 2,000, tools return:
+Om count > 2 000 returnerar verktygen:
 
 ```json
 {
@@ -216,9 +216,9 @@ If count > 2,000, tools return:
 }
 ```
 
-The client also rate-limits outbound calls to stay within 10 / 10s.
+Klienten begränsar också utgående anrop så att de håller sig inom 10 / 10s.
 
-## Running tests
+## Köra tester
 
 ```bash
 pnpm typecheck
@@ -226,7 +226,7 @@ pnpm lint
 pnpm test
 ```
 
-Live SCB tests are **not** part of `pnpm test`. They need a real certificate and:
+Live-tester mot SCB ingår **inte** i `pnpm test`. De kräver ett riktigt certifikat och:
 
 ```bash
 # PowerShell
@@ -234,9 +234,9 @@ $env:SCB_LIVE_TESTS="true"
 pnpm test:live
 ```
 
-## Errors
+## Fel
 
-Machine-readable JSON:
+Maskinläsbar JSON:
 
 - `SCB_AUTH_ERROR`
 - `SCB_RATE_LIMITED`
@@ -247,6 +247,6 @@ Machine-readable JSON:
 - `QUERY_TOO_BROAD`
 - `SCB_RESPONSE_VALIDATION_ERROR`
 
-## Live SCB verification
+## Live-verifiering mot SCB
 
-Certificate auth, JE/AE metadata, kodtabell, and `raknaforetag` have been verified against the live SCB API with a real `.pfx`. POST bodies follow `/help/exampleJe`. Search of result sets larger than 2,000 is refused (`QUERY_TOO_BROAD`); that path should be checked with a narrow filter.
+Certifikatautentisering, JE/AE-metadata, kodtabell och `raknaforetag` har verifierats mot SCB:s skarpa API med ett riktigt `.pfx`. POST-kroppar följer `/help/exampleJe`. Sökning av resultatmängder större än 2 000 avvisas (`QUERY_TOO_BROAD`); den vägen bör kontrolleras med ett smalt filter.
