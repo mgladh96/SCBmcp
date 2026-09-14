@@ -4,6 +4,7 @@ import { apiIdHeaders, createScbDispatcher, type ScbAuthConfig, validateCertConf
 import { TtlCache } from "./cache.js";
 import { lookupCategoryGroups, searchCodeTables, type CodeLookupResult } from "./code-lookup.js";
 import { countPath, endpointsFor, searchPath } from "./endpoints.js";
+import { normalizeIdentityInFilters } from "./identity.js";
 import { isAllowedOperator } from "./operators.js";
 import {
   extractMetadataItems,
@@ -263,7 +264,8 @@ export class ScbClient {
 
   private async count(objectType: ObjectType, filters: ScbFilters, tool: string): Promise<number> {
     this.assertKnownOperators(filters);
-    const cacheKey = countCacheKey(objectType, filters);
+    const prepared = this.prepareFilters(objectType, filters);
+    const cacheKey = countCacheKey(objectType, prepared);
     const cached = this.countCache.get(cacheKey);
     if (cached !== undefined) {
       this.log.info("SCB count cache hit", { tool, objectType, count: cached, cacheHit: true });
@@ -273,10 +275,10 @@ export class ScbClient {
     const path = countPath(layout);
     const payload = await this.request("POST", path, {
       tool,
-      body: toScbQueryBody(filters),
+      body: toScbQueryBody(prepared, layout),
       objectType,
-      submittedCategories: filters.categories.map((item) => item.category),
-      submittedVariables: filters.variables.map((item) => item.variable),
+      submittedCategories: prepared.categories.map((item) => item.category),
+      submittedVariables: prepared.variables.map((item) => item.variable),
     });
     try {
       const count = parseCountResponse(payload);
@@ -295,14 +297,15 @@ export class ScbClient {
     tool: string,
   ): Promise<SearchResult> {
     const countTool = objectType === "company" ? "scb_count_companies" : "scb_count_workplaces";
-    const cacheKey = countCacheKey(objectType, filters);
+    const prepared = this.prepareFilters(objectType, filters);
+    const cacheKey = countCacheKey(objectType, prepared);
     const countFromCache = this.countCache.get(cacheKey) !== undefined;
-    const count = await this.count(objectType, filters, countTool);
+    const count = await this.count(objectType, prepared, countTool);
     if (count > MAX_RESULTS) {
       throw queryTooBroad(count, MAX_RESULTS, {
         objectType,
         layout: layoutFor(objectType),
-        appliedFilters: filters,
+        appliedFilters: prepared,
         catalogCategoryNames: this.cachedCategoryNames(objectType),
         catalogVariableNames: this.cachedVariableNames(objectType),
       });
@@ -315,10 +318,10 @@ export class ScbClient {
     const path = searchPath(layout);
     const payload = await this.request("POST", path, {
       tool,
-      body: toScbQueryBody(filters),
+      body: toScbQueryBody(prepared, layout),
       objectType,
-      submittedCategories: filters.categories.map((item) => item.category),
-      submittedVariables: filters.variables.map((item) => item.variable),
+      submittedCategories: prepared.categories.map((item) => item.category),
+      submittedVariables: prepared.variables.map((item) => item.variable),
     });
     try {
       const result: SearchResult = { count, results: parseSearchResponse(payload) };
@@ -331,6 +334,19 @@ export class ScbClient {
         cause: error instanceof Error ? error.message : "unknown",
       });
     }
+  }
+
+  private prepareFilters(objectType: ObjectType, filters: ScbFilters): ScbFilters {
+    const identity = normalizeIdentityInFilters(filters, objectType);
+    if (identity.error) {
+      throw new ScbError("SCB_INVALID_QUERY", identity.error, false, {
+        field: "filters.variables.value",
+        origin: "identity",
+        suggestion:
+          "Använd 10-siffrigt organisationsnummer eller 12-siffrigt PeOrgNr (16+orgnr). CFAR är 8 siffror. Operator ArLikaMed.",
+      });
+    }
+    return identity.filters;
   }
 
   private async cachedMetadata(
@@ -450,7 +466,7 @@ export class ScbClient {
 }
 
 function countCacheKey(objectType: ObjectType, filters: ScbFilters): string {
-  return `${layoutFor(objectType)}:${JSON.stringify(toScbQueryBody(filters))}`;
+  return `${layoutFor(objectType)}:${JSON.stringify(toScbQueryBody(filters, layoutFor(objectType)))}`;
 }
 
 function parseRetryAfterMs(header: string | null): number {

@@ -54,8 +54,8 @@ export function catalogFetch(spec: MockCatalogSpec): FetchLike {
     workplace: ["Arbetsställestatus", "Län", "Kommun", "Bransch", "Storleksklass Anställda"],
   };
   const variables = spec.variables ?? {
-    company: ["Företagsnamn", "Firma"],
-    workplace: ["Benämning"],
+    company: ["Företagsnamn", "Firma", "PeOrgNr", "OrgNr"],
+    workplace: ["Benämning", "CfarNr", "PeOrgNr"],
   };
   const tables = spec.tables ?? {
     Företagsstatus: [

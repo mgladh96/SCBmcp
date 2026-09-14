@@ -4,7 +4,7 @@ import {
   isTopLevelCategory,
   type MetadataItem,
 } from "../scb/payload.js";
-import type { ObjectType } from "../scb/types.js";
+import { layoutFor, type ObjectType, type ScbLayout } from "../scb/types.js";
 
 export type CategoryKind = "status" | "geography" | "industry" | "size" | "other";
 export type VariableKind = "name" | "identity" | "date" | "text";
@@ -95,8 +95,9 @@ export function classifyVariableKind(name: string): VariableKind {
   return "text";
 }
 
-export function categorySerialization(name: string): CategorySerialization {
-  return isTopLevelCategory(name) ? "top-level" : "Kategorier";
+export function categorySerialization(name: string, objectType?: ObjectType): CategorySerialization {
+  const layout = objectType ? layoutFor(objectType) : undefined;
+  return isTopLevelCategory(name, layout) ? "top-level" : "Kategorier";
 }
 
 export function counterpartOnWorkplace(name: string): string | undefined {
@@ -385,6 +386,14 @@ export const FILTER_HINTS: FilterHint[] = [
     notes: "Operator Innehaller. Firma och Företagsnamn är olika fält — ta namnet från scb_list_variables.",
   },
   {
+    questionClass: "name_contains",
+    objectType: "workplace",
+    recommendedCategories: ["Arbetsställestatus"],
+    recommendedVariables: ["Benämning"],
+    defaultStatus: { category: "Arbetsställestatus", value: "1", meaning: "verksam" },
+    notes: "Operator Innehaller. AE-namn är Benämning, inte Företagsnamn.",
+  },
+  {
     questionClass: "employee_size",
     objectType: "both",
     recommendedCategories: ["Storleksklass Anställda", "AnstSME"],
@@ -395,8 +404,9 @@ export const FILTER_HINTS: FilterHint[] = [
     questionClass: "organization_number",
     objectType: "both",
     recommendedCategories: [],
-    recommendedVariables: ["PeOrgNr", "OrgNr"],
-    notes: "Exakt operator (ArLikaMed). Inget eget identitetsverktyg i Sprint B.",
+    recommendedVariables: ["PeOrgNr", "OrgNr", "CfarNr"],
+    notes:
+      "Exakt operator ArLikaMed. 10-siffrigt org.nr → PeOrgNr (prefix 16). CFAR/CfarNr är 8 siffror. Personnummer-lika PeOrgNr loggas inte.",
   },
 ];
 
@@ -449,7 +459,7 @@ export function schemaWarnings(objectType: ObjectType): string[] {
         ]
       : [
           "AE-geografi är belägenhet (Län/Kommun). Gävleborg är Län, inte JE-säte.",
-          "Arbetsställestatus serialiseras som Kategorier[] i denna server (JE-status är toppnivå). Verifiera mot /help/exampleAe.",
+          "Arbetsställestatus serialiseras som toppnivåfält (samma mönster som JE-status). Verifiera mot /help/exampleAe; SCB_AE_STATUS_TOP_LEVEL=false ger Kategorier[].",
         ];
   warnings.push(
     "Dumpa inte SNI med includeCodeTables=true — använd scb_lookup_codes eller scb_get_category_values med query.",
@@ -469,13 +479,14 @@ export const MAX_SAMPLE_VALUES = 5;
 
 export function branchLevelWarnings(
   filters: { categories: Array<{ category: string; branchLevel?: number | undefined }> },
+  layout?: ScbLayout,
 ): string[] {
   const warnings: string[] = [];
   for (const item of filters.categories) {
     if (item.branchLevel === undefined) {
       continue;
     }
-    if (isTopLevelCategory(item.category)) {
+    if (isTopLevelCategory(item.category, layout)) {
       warnings.push(
         `branchLevel/Branschniva ignoreras för toppnivåkategorin "${item.category}".`,
       );

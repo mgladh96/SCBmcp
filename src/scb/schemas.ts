@@ -5,6 +5,7 @@ import {
   DEFAULT_LOOKUP_LIMIT,
   type QuestionClass,
 } from "../domain/catalog.js";
+import { DEFAULT_SEARCH_MAX_ROWS, MAX_SEARCH_MAX_ROWS } from "./types.js";
 
 export const objectTypeSchema = z.enum(["company", "workplace"]);
 
@@ -87,8 +88,28 @@ export const countCompaniesInputSchema = z.object({
   filters: scbFiltersSchema,
 });
 
+export const searchProjectionSchema = z.object({
+  fields: z
+    .array(z.string().min(1))
+    .optional()
+    .describe(
+      "Fältprojektion. Standard: identitet, namn, status, geografi, SNI/bransch, storleksklass, Reklam. Reklam strippas aldrig.",
+    ),
+  maxRows: z
+    .number()
+    .int()
+    .min(1)
+    .max(MAX_SEARCH_MAX_ROWS)
+    .optional()
+    .describe(
+      `Max rader i MCP-svaret (standard ${DEFAULT_SEARCH_MAX_ROWS}, högst ${MAX_SEARCH_MAX_ROWS}). Trunkering sker i MCP efter SCB-hämtning; ingen SCB-paginering.`,
+    ),
+});
+
 export const searchCompaniesInputSchema = z.object({
   filters: scbFiltersSchema,
+  fields: searchProjectionSchema.shape.fields,
+  maxRows: searchProjectionSchema.shape.maxRows,
 });
 
 export const countWorkplacesInputSchema = z.object({
@@ -96,6 +117,13 @@ export const countWorkplacesInputSchema = z.object({
 });
 
 export const searchWorkplacesInputSchema = z.object({
+  filters: scbFiltersSchema,
+  fields: searchProjectionSchema.shape.fields,
+  maxRows: searchProjectionSchema.shape.maxRows,
+});
+
+export const explainQueryInputSchema = z.object({
+  objectType: objectTypeSchema,
   filters: scbFiltersSchema,
 });
 

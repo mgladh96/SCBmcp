@@ -1,29 +1,59 @@
 import type { ScbFilters } from "./schemas.js";
+import type { ScbLayout } from "./types.js";
 
 /**
  * POST bodies follow SCB help examples (certificate-gated):
- * /help/exampleJe
+ * /help/exampleJe and (for AE status) /help/exampleAe.
  *
- * Categories such as Företagsstatus and Registreringsstatus are top-level
- * string properties. Other categories use Kategorier[]. Variables use
- * lowercase `variabler` with Operator / Varde1 / Varde2 / Variabel.
+ * JE: Företagsstatus and Registreringsstatus are top-level string properties.
+ * AE: Arbetsställestatus is treated as top-level by default (catalog-driven),
+ * analogously to JE — sourced from SCB docs + third-party exampleAe dumps.
+ * Live `/help/exampleAe` is certificate-gated; set SCB_AE_STATUS_TOP_LEVEL=false
+ * to serialize Arbetsställestatus inside Kategorier[] instead.
+ *
+ * Other categories use Kategorier[]. Variables use lowercase `variabler`
+ * with Operator / Varde1 / Varde2 / Variabel.
  */
-export const TOP_LEVEL_CATEGORIES = new Set(["Företagsstatus", "Registreringsstatus"]);
+export const JE_TOP_LEVEL_CATEGORIES = ["Företagsstatus", "Registreringsstatus"] as const;
+export const AE_TOP_LEVEL_STATUS = "Arbetsställestatus";
 
-export function isTopLevelCategory(name: string): boolean {
-  return TOP_LEVEL_CATEGORIES.has(name);
+/** @deprecated Use topLevelCategoriesFor(layout). Kept as the JE set. */
+export const TOP_LEVEL_CATEGORIES = new Set<string>(JE_TOP_LEVEL_CATEGORIES);
+
+export const AE_STATUS_LIVE_CONFIRM_NOTE =
+  "Arbetsställestatus serialiseras som toppnivåfält (samma mönster som JE Företagsstatus) utifrån SCB-dokumentation och tredjeparts exampleAe. Live /help/exampleAe är certifikat-låst och inte omverifierat här. Sätt SCB_AE_STATUS_TOP_LEVEL=false för Kategorier[] i stället.";
+
+export function aeStatusTopLevelEnabled(): boolean {
+  const raw = process.env.SCB_AE_STATUS_TOP_LEVEL?.trim().toLowerCase();
+  return raw !== "false" && raw !== "0" && raw !== "kategorier";
+}
+
+export function topLevelCategoriesFor(layout: ScbLayout = "je"): ReadonlySet<string> {
+  if (layout === "ae") {
+    return aeStatusTopLevelEnabled() ? new Set([AE_TOP_LEVEL_STATUS]) : new Set();
+  }
+  return new Set<string>(JE_TOP_LEVEL_CATEGORIES);
+}
+
+export function isTopLevelCategory(name: string, layout?: ScbLayout): boolean {
+  if (layout) {
+    return topLevelCategoriesFor(layout).has(name);
+  }
+  return name === "Företagsstatus" || name === "Registreringsstatus" ||
+    (aeStatusTopLevelEnabled() && name === AE_TOP_LEVEL_STATUS);
 }
 
 export function toKodtabellBody(category: string): unknown {
   return { Kategori: category };
 }
 
-export function toScbQueryBody(filters: ScbFilters): unknown {
+export function toScbQueryBody(filters: ScbFilters, layout: ScbLayout = "je"): unknown {
   const body: Record<string, unknown> = {};
   const kategorier: Array<Record<string, unknown>> = [];
+  const topLevel = topLevelCategoriesFor(layout);
 
   for (const item of filters.categories) {
-    if (TOP_LEVEL_CATEGORIES.has(item.category)) {
+    if (topLevel.has(item.category)) {
       const first = item.values[0];
       if (first !== undefined) {
         body[item.category] = item.values.length === 1 ? first : item.values;

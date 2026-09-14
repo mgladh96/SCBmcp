@@ -69,7 +69,7 @@ export function compactSchemaSummary(
     const entry: SchemaSummaryCategory = {
       name,
       kind,
-      serialization: categorySerialization(name),
+      serialization: categorySerialization(name, objectType),
     };
     const workplace = counterpartOnWorkplace(name);
     if (workplace) {

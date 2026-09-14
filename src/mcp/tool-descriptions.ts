@@ -41,26 +41,39 @@ Anti-mönster: "Bygg" i namn ≠ SNI; operatorer som Contains; AnstSME vs Storle
 
 export const SEARCH_COMPANIES_DESCRIPTION = `Hämta juridiska enheter (JE). Räknar först (återanvänder nylig count, ~5 s). Om count=0 hoppas hamta över. Om count>2000: QUERY_TOO_BROAD (paginera inte).
 
+Valfritt fields[] och maxRows (standard 75, högst 2000). Standardfält: PeOrgNr, namn, status, geografi, SNI/bransch, storleksklass, Reklam. Reklam strippas aldrig. Trunkering sker i MCP efter hämtning; SCB anropas inte om.
+
 Filter: categories[] och variables[] med SCB-namn från listverktygen. Operatorer: Innehaller, ArLikaMed, m.fl. (allowlist). branchLevel = SCB Branschniva, bara på bransch/SNI.
 JE-geografi = säte (Säteslän), inte Län. Namn "Bygg" ≠ SNI.
+Org.nr: 10 eller 12 siffror; 10-siffrigt organisationsnummer → PeOrgNr med prefix 16. Operator ArLikaMed.
 
+Svarskuvert: { count, returned, omitted?, results, filters, warnings?, source }.
 Search är två kvotplatser om count inte cacheas (10 anrop / 10 s). Vid SCB_RATE_LIMITED: vänta retryAfterMs, retry_same.
 Vid SCB_UNKNOWN_CATEGORY/VARIABLE: nextTools pekar på listverktygen. SCB_AUTH_ERROR går inte att rätta med andra filter.`;
 
 export const COUNT_WORKPLACES_DESCRIPTION = `Räkna arbetsställen (AE) som matchar SCB-filter. Använd för att iterera — search räknar redan internt.
 
 AE-geografi är Län/Kommun där stället ligger. Gävleborg som belägenhet hör hit, inte till JE-säte.
-Status är Arbetsställestatus, inte Företagsstatus.
+Status är Arbetsställestatus (toppnivå i POST, analogt med JE) — inte Företagsstatus.
 
 SCB max 2000 rader, ingen paginering, ingen historik. count=0 → stanna. count>2000 → smalna.
 Tomma filter = hela populationen (warning).`;
 
 export const SEARCH_WORKPLACES_DESCRIPTION = `Hämta arbetsställen (AE). Räknar först (återanvänder nylig count, ~5 s). Om count=0 hoppas hamta över. Om count>2000: QUERY_TOO_BROAD (paginera inte).
 
+Valfritt fields[] och maxRows (standard 75, högst 2000). Standardfält: CfarNr, PeOrgNr, namn, status, geografi, SNI, storleksklass, Reklam. Reklam strippas aldrig.
 Gävleborg är AE Län när frågan gäller belägenhet. Namn "Bygg" ≠ SNI. Operatorer är SCB-enum (Innehaller, ArLikaMed, …).
-Storleksklass Anställda ≠ AnstSME. Behåll Reklam. branchLevel = Branschniva, bara på bransch.
+Storleksklass Anställda ≠ AnstSME. branchLevel = Branschniva, bara på bransch.
+CfarNr är 8 siffror, operator ArLikaMed. Svarskuvert: { count, returned, omitted?, results, filters, warnings?, source }.
 
 Vid SCB_RATE_LIMITED: retryAfterMs + retry_same. Vid UNKNOWN_*: scb_schema_summary / nearestNames. Ingen historik.`;
+
+export const EXPLAIN_QUERY_DESCRIPTION = `Dry-run: serialisera filter till SCB POST-kropp utan HTTP mot SCB.
+
+Input: objectType (company|workplace) + samma filters som count/search.
+Svar: layout, endpoints (rakna*/hamta*), serializedBody, operatorvalidering, identitetsnormalisering, varningar (tomma filter, branchLevel på icke-bransch, JE/AE-geografi). Noll kvot.
+
+Använd före scb_count_*/scb_search_* när du vill se vad som skulle skickas.`;
 
 export const SCHEMA_SUMMARY_DESCRIPTION = `Kompakt katalog för company (JE) eller workplace (AE), byggd från cacheade koptakategorier + koptavariabler.
 

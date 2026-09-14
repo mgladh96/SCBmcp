@@ -38,4 +38,74 @@ describe("SCB query payload", () => {
       ],
     });
   });
+
+  it("matches SCB exampleAe top-level Arbetsställestatus", () => {
+    expect(
+      toScbQueryBody(
+        {
+          categories: [
+            { category: "Arbetsställestatus", values: ["1"] },
+            { category: "Län", values: ["21"] },
+          ],
+          variables: [],
+        },
+        "ae",
+      ),
+    ).toEqual({
+      Arbetsställestatus: "1",
+      Kategorier: [{ Kategori: "Län", Kod: ["21"] }],
+    });
+  });
+
+  it("does not lift JE status fields on AE layout", () => {
+    expect(
+      toScbQueryBody(
+        {
+          categories: [{ category: "Företagsstatus", values: ["1"] }],
+          variables: [],
+        },
+        "ae",
+      ),
+    ).toEqual({
+      Kategorier: [{ Kategori: "Företagsstatus", Kod: ["1"] }],
+    });
+  });
+
+  it("does not lift Arbetsställestatus on JE layout", () => {
+    expect(
+      toScbQueryBody(
+        {
+          categories: [{ category: "Arbetsställestatus", values: ["1"] }],
+          variables: [],
+        },
+        "je",
+      ),
+    ).toEqual({
+      Kategorier: [{ Kategori: "Arbetsställestatus", Kod: ["1"] }],
+    });
+  });
+
+  it("can serialize AE status as Kategorier when SCB_AE_STATUS_TOP_LEVEL=false", () => {
+    const previous = process.env.SCB_AE_STATUS_TOP_LEVEL;
+    process.env.SCB_AE_STATUS_TOP_LEVEL = "false";
+    try {
+      expect(
+        toScbQueryBody(
+          {
+            categories: [{ category: "Arbetsställestatus", values: ["1"] }],
+            variables: [],
+          },
+          "ae",
+        ),
+      ).toEqual({
+        Kategorier: [{ Kategori: "Arbetsställestatus", Kod: ["1"] }],
+      });
+    } finally {
+      if (previous === undefined) {
+        delete process.env.SCB_AE_STATUS_TOP_LEVEL;
+      } else {
+        process.env.SCB_AE_STATUS_TOP_LEVEL = previous;
+      }
+    }
+  });
 });
