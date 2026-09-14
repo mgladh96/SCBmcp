@@ -14,6 +14,7 @@ export const envSchema = z.object({
   SCB_LOG_LEVEL: z.enum(["debug", "info", "error"]).default("info"),
   MCP_HOST: z.string().min(1).default("127.0.0.1"),
   MCP_PORT: z.coerce.number().int().min(1).max(65535).default(3000),
+  MCP_AUTH_TOKEN: z.string().min(1).optional(),
 });
 
 export type AppConfig = {
@@ -25,7 +26,26 @@ export type AppConfig = {
   logLevel: "debug" | "info" | "error";
   host: string;
   port: number;
+  authToken?: string;
 };
+
+export class McpConfigError extends Error {
+  readonly code = "MCP_CONFIG_ERROR";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "McpConfigError";
+  }
+}
+
+/** True for bind addresses that only accept local connections. */
+export function isLoopbackHost(host: string): boolean {
+  const normalized = host.trim().toLowerCase().replace(/^\[|\]$/g, "");
+  if (normalized === "localhost" || normalized === "::1" || normalized === "0:0:0:0:0:0:0:1") {
+    return true;
+  }
+  return /^127(?:\.(?:\d{1,3})){3}$/.test(normalized);
+}
 
 export function loadEnvFiles(cwd = process.cwd()): void {
   for (const name of [".env.example", ".env"]) {
@@ -57,6 +77,7 @@ export function loadEnvFiles(cwd = process.cwd()): void {
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
+  const authTokenInput = optionalEnvString(env.MCP_AUTH_TOKEN);
   const parsed = envSchema.safeParse({
     SCB_BASE_URL: env.SCB_BASE_URL ?? DEFAULT_BASE_URL,
     SCB_API_ID: env.SCB_API_ID,
@@ -66,6 +87,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     SCB_LOG_LEVEL: env.SCB_LOG_LEVEL ?? "info",
     MCP_HOST: env.MCP_HOST ?? "127.0.0.1",
     MCP_PORT: env.MCP_PORT ?? 3000,
+    ...(authTokenInput ? { MCP_AUTH_TOKEN: authTokenInput } : {}),
   });
   if (!parsed.success) {
     throw new ScbError("SCB_AUTH_ERROR", "Invalid SCB configuration.", false, {
@@ -75,6 +97,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       })),
     });
   }
+  const host = parsed.data.MCP_HOST;
+  const authToken = parsed.data.MCP_AUTH_TOKEN;
+  if (!isLoopbackHost(host) && !authToken) {
+    throw new McpConfigError(
+      `Refusing to bind MCP HTTP server to ${host} without MCP_AUTH_TOKEN. ` +
+        "Set a shared secret, or keep MCP_HOST at 127.0.0.1.",
+    );
+  }
   return {
     baseUrl: parsed.data.SCB_BASE_URL.replace(/\/+$/, ""),
     apiId: parsed.data.SCB_API_ID,
@@ -82,7 +112,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     certPath: parsed.data.SCB_CERT_PATH,
     certPassword: parsed.data.SCB_CERT_PASSWORD,
     logLevel: parsed.data.SCB_LOG_LEVEL,
-    host: parsed.data.MCP_HOST,
+    host,
     port: parsed.data.MCP_PORT,
+    ...(authToken ? { authToken } : {}),
   };
+}
+
+function optionalEnvString(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
 }

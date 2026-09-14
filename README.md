@@ -67,12 +67,19 @@ Help pages (certificate required):
 | `SCB_CERT_PATH` | yes | Path to the `.pfx` file |
 | `SCB_CERT_PASSWORD` | yes | Certificate password |
 | `SCB_API_ID_HEADER` | no | Header name for the API-id. Default `api-id`. Confirm against SCB help if calls are rejected. |
-| `SCB_LOG_LEVEL` | no | `debug`, `info`, or `error`. Logs go to stderr. |
-| `MCP_HOST` | no | Bind address. Default `127.0.0.1`. Use `0.0.0.0` to listen on all interfaces. |
+| `SCB_LOG_LEVEL` | no | `debug`, `info`, or `error`. Logs go to stderr. The MCP auth token is never logged. |
+| `MCP_HOST` | no | Bind address. Default `127.0.0.1`. Non-loopback binds (e.g. `0.0.0.0`) require `MCP_AUTH_TOKEN`. |
 | `MCP_PORT` | no | HTTP port. Default `3000`. |
+| `MCP_AUTH_TOKEN` | recommended | Shared secret for MCP HTTP/SSE (`/sse`, `/messages`). Required when `MCP_HOST` is not loopback. |
 | `SCB_LIVE_TESTS` | no | Set to `true` only when running live SCB tests |
 
 Copy `.env.example`. Do not put secrets in git.
+
+Generate a token:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
 
 ## Installation
 
@@ -95,27 +102,47 @@ pnpm start
 
 The process is an HTTP server. MCP uses **SSE**:
 
-- Health / URL info: `http://127.0.0.1:3000/health`
+- Health / URL info: `http://127.0.0.1:3000/health` (no MCP auth; does not expose secrets)
 - SSE (clients connect here): `http://127.0.0.1:3000/sse`
 - Message POST: `http://127.0.0.1:3000/messages?sessionId=...`
+
+When `MCP_AUTH_TOKEN` is set, `/sse` and `/messages` require it. Send either:
+
+- `Authorization: Bearer <token>`
+- `X-MCP-Auth: <token>`
+
+Unauthenticated MCP requests receive **401**. Startup logs `auth: "required"` or `auth: "disabled"` — never the token value.
 
 Logs go to stderr.
 
 ## Connecting from Cursor / Claude / another MCP client
 
-Start this server first, then point the client at the SSE URL. Example Cursor config is in `examples/mcp.json`:
+Start this server first, then point the client at the SSE URL and send the same token as `MCP_AUTH_TOKEN`. Example Cursor config is in `examples/mcp.json`:
 
 ```json
 {
   "mcpServers": {
     "scb-foretagsregister": {
-      "url": "http://127.0.0.1:3000/sse"
+      "url": "http://127.0.0.1:3000/sse",
+      "headers": {
+        "Authorization": "Bearer ${env:MCP_AUTH_TOKEN}"
+      }
     }
   }
 }
 ```
 
+`${env:MCP_AUTH_TOKEN}` is resolved by Cursor from the **client** environment. The value must match the server process `MCP_AUTH_TOKEN`.
+
 SCB certificate settings stay in the server process environment (`.env`), not in the MCP client config.
+
+## MCP HTTP authentication and bind safety
+
+The SCB client certificate authenticates this process **to SCB**. A separate shared secret authenticates **MCP clients to this server**, so anyone who can reach the port cannot burn SCB quota.
+
+- Set `MCP_AUTH_TOKEN` even on localhost. Loopback without a token still starts (for local probes), but `/sse` and `/messages` are then unauthenticated.
+- Binding to a non-loopback address (`0.0.0.0`, `::`, a LAN IP) **refuses to start** unless `MCP_AUTH_TOKEN` is set.
+- CORS is not `Access-Control-Allow-Origin: *`. Loopback `Origin` values may be reflected; `Authorization` and `X-MCP-Auth` are allowed headers.
 
 ## Available MCP tools
 

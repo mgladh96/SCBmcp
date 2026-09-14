@@ -1,7 +1,10 @@
 {
   "mcpServers": {
     "scb-foretagsregister": {
-      "url": "http://127.0.0.1:3000/sse"
+      "url": "http://127.0.0.1:3000/sse",
+      "headers": {
+        "Authorization": "Bearer ${env:MCP_AUTH_TOKEN}"
+      }
     }
   }
 }
