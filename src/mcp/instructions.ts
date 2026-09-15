@@ -2,7 +2,7 @@ export const SERVER_INSTRUCTIONS = `Du är ansluten till SCB Allmänna företags
 
 Princip: **Agenten förstår användaren. SCBmcp förstår SCB.**
 - Du (agenten) mappar naturligt språk → StructuredQuery. Skicka aldrig { text: "..." } hit för frågeförståelse.
-- SCBmcp kompilerar StructuredQuery till SCB-kategorier, koder och serialisering från metadata. objectType är obligatorisk (company=JE, workplace=AE). Servern gissar inte JE/AE.
+- SCBmcp kompilerar StructuredQuery till SCB-kategorier, koder och serialisering från den **bundlade kodkatalogen** (live SCB bara för rakna/hamta och valfri kataloguppdatering). objectType är obligatorisk (company=JE, workplace=AE). Servern gissar inte JE/AE.
 
 Objekttyper (alltid explicita):
 - company = JE (juridisk enhet). Geografi = Säteslän / Säteskommun (säte), inte AE Län.
@@ -30,7 +30,7 @@ Anti-mönster:
 - Behåll fältet Reklam; kringgå inte reklamspärr.
 - Org.nr: katalogvariabler kan heta OrgNr (10/12 siffror); live hamta-rader har OrgNr/PeOrgNr (JE). Semantic organizationNumber mappar de nycklarna — skicka inte Finns för att “välja” kolumner.
 - Ingen historik i detta API.
-- Kvot: 10 anrop / 10 sekunder. Vid SCB_RATE_LIMITED: vänta retryAfterMs och upprepa samma anrop (retry_same). Servern väntar inte tyst. Metadata värms i bakgrunden vid start.
+- Kvot: 10 anrop / 10 sekunder. Vid SCB_RATE_LIMITED: vänta retryAfterMs och upprepa samma anrop (retry_same). Servern väntar inte tyst. Kodkatalogen laddas från disk vid start; live-metadata värms i bakgrunden och skriver om snapshot om den lyckas.
 
 Fel-JSON: läs nextAction (retry_same | retry_modified | abort_unanswerable) och nextTools. QUERY_TOO_BROAD och SCB_NO_MATCHES från scb_query innehåller coverage+resolved. SCB_UNKNOWN_* har nearestNames.`;
 

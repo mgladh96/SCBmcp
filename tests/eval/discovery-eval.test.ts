@@ -14,6 +14,7 @@ describe("discovery eval", () => {
         "parent-children-F",
         "jamtland",
         "lanlista",
+        "stadning",
         "employee-size",
         "unknown-term",
       ]),

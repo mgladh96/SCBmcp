@@ -1,10 +1,24 @@
 import { localRateLimited, mapHttpError, queryTooBroad, ScbError, unknownOperatorError, withCatalogHints } from "../domain/errors.js";
 import { createLogger, type LogLevel } from "../log.js";
 import { apiIdHeaders, createScbDispatcher, type ScbAuthConfig, validateCertConfig } from "./auth.js";
-import { classifyCategoryKind, LOOKUP_KINDS, type CategoryKind } from "../domain/catalog.js";
+import { classifyCategoryKind, LOOKUP_KINDS, type CategoryKind, type CodeRow } from "../domain/catalog.js";
 import { TtlCache } from "./cache.js";
 import { lookupCategoryGroups, searchCodes, type CodeLookupResult } from "./code-lookup.js";
 import { buildDiscoveryIndex, type DiscoveryIndex } from "./discovery.js";
+import {
+  buildCatalogFromClient,
+  catalogDisabled,
+  catalogDocCount,
+  categoryListPayload,
+  findCatalogTable,
+  kodtabellPayload,
+  loadCatalogFromDisk,
+  resolveCatalogPath,
+  variableListPayload,
+  writeCatalogToDisk,
+  type CatalogArtifact,
+  type CatalogLayout,
+} from "./offline-catalog.js";
 import { countPath, endpointsFor, searchPath } from "./endpoints.js";
 import { identityInvalidErrorDetails, normalizeIdentityInFilters } from "./identity.js";
 import { isAllowedOperator } from "./operators.js";
@@ -50,10 +64,18 @@ export type ScbClientOptions = {
   countCacheTtlMs?: number;
   /** Used only by metadata warm retries. Tests can inject a no-op. */
   sleep?: (ms: number) => Promise<void>;
+  /**
+   * Offline SCB code catalog. `undefined` loads the bundled snapshot (unless
+   * SCB_CATALOG_DISABLE). `false` skips the catalog (tests / live-only).
+   * A path or artifact installs immediately.
+   */
+  offlineCatalog?: CatalogArtifact | string | false;
 };
 
 export type MetadataCallOptions = {
   bypassCache?: boolean;
+  /** Skip the bundled catalog and hit live/cache (used by catalog refresh). */
+  bypassCatalog?: boolean;
 };
 
 export type SearchResult = {
@@ -94,6 +116,9 @@ export class ScbClient {
   private readonly discoveryCache: TtlCache<DiscoveryIndex>;
   private readonly countCache: TtlCache<number>;
   private readonly sleep: (ms: number) => Promise<void>;
+  private readonly catalogPath: string;
+  private catalog: CatalogArtifact | undefined;
+  private catalogLayouts = new Map<ObjectType, CatalogLayout>();
 
   constructor(options: ScbClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
@@ -108,12 +133,15 @@ export class ScbClient {
     this.discoveryCache = new TtlCache(metadataTtl);
     this.countCache = new TtlCache(options.countCacheTtlMs ?? COUNT_CACHE_TTL_MS);
     this.sleep = options.sleep ?? defaultSleep;
+    this.catalogPath =
+      typeof options.offlineCatalog === "string" ? options.offlineCatalog : resolveCatalogPath();
     if (options.skipCertLoad) {
       validateCertConfig(this.auth);
       this.dispatcher = undefined;
     } else {
       this.dispatcher = createScbDispatcher(this.auth);
     }
+    this.bootstrapCatalog(options.offlineCatalog, options.skipCertLoad === true);
   }
 
   async listCategories(
@@ -124,6 +152,12 @@ export class ScbClient {
     const layout = layoutFor(objectType);
     if (options.bypassCache === true || this.bypassMetadataCache) {
       this.discoveryCache.clear();
+    }
+    if (!includeCodeTables && this.shouldServeCatalog(options)) {
+      const catalogLayout = this.catalogLayouts.get(objectType);
+      if (catalogLayout) {
+        return categoryListPayload(objectType, catalogLayout.categoryNames);
+      }
     }
     const path = includeCodeTables
       ? endpointsFor(layout).kategoriermedkodtabeller
@@ -144,6 +178,12 @@ export class ScbClient {
     const layout = layoutFor(objectType);
     if (options.bypassCache === true || this.bypassMetadataCache) {
       this.discoveryCache.clear();
+    }
+    if (this.shouldServeCatalog(options)) {
+      const table = this.catalogTable(objectType, category);
+      if (table) {
+        return kodtabellPayload(table.rows);
+      }
     }
     const path = endpointsFor(layout).kodtabell;
     const key = `kodtabell:${layout}:${category}`;
@@ -167,6 +207,12 @@ export class ScbClient {
     options: MetadataCallOptions = {},
   ): Promise<unknown> {
     const layout = layoutFor(objectType);
+    if (!includeValueMetadata && this.shouldServeCatalog(options)) {
+      const catalogLayout = this.catalogLayouts.get(objectType);
+      if (catalogLayout) {
+        return variableListPayload(objectType, catalogLayout.variableNames);
+      }
+    }
     const path = includeValueMetadata
       ? endpointsFor(layout).variabler
       : endpointsFor(layout).koptavariabler;
@@ -221,6 +267,15 @@ export class ScbClient {
     } = {},
   ): Promise<CodeLookupResult> {
     const kind = options.kind ?? (options.parentCode && !options.category ? "industry" : undefined);
+    const catalogIndex = this.catalogDiscoveryIndex(objectType, options);
+    if (catalogIndex) {
+      return searchCodes(catalogIndex, query, {
+        kind: options.kind ?? kind,
+        category: options.category,
+        parentCode: options.parentCode,
+        limit: options.limit,
+      });
+    }
     if (!options.category && !kind && query.trim()) {
       return this.lookupCodesIncremental(objectType, query, options);
     }
@@ -264,19 +319,55 @@ export class ScbClient {
   }
 
   cachedCategoryNames(objectType: ObjectType): string[] | undefined {
-    return this.cachedMetadataNames(`listCategories:${layoutFor(objectType)}:0`);
+    return this.offlineCategoryNames(objectType) ?? this.cachedMetadataNames(`listCategories:${layoutFor(objectType)}:0`);
   }
 
   cachedVariableNames(objectType: ObjectType): string[] | undefined {
-    return this.cachedMetadataNames(`listVariables:${layoutFor(objectType)}:0`);
+    return this.offlineVariableNames(objectType) ?? this.cachedMetadataNames(`listVariables:${layoutFor(objectType)}:0`);
+  }
+
+  offlineCategoryNames(objectType: ObjectType): string[] | undefined {
+    const names = this.catalogLayouts.get(objectType)?.categoryNames;
+    return names && names.length > 0 ? names : undefined;
+  }
+
+  offlineVariableNames(objectType: ObjectType): string[] | undefined {
+    const names = this.catalogLayouts.get(objectType)?.variableNames;
+    return names && names.length > 0 ? names : undefined;
+  }
+
+  offlineCodeRows(objectType: ObjectType, category: string): CodeRow[] | undefined {
+    const table = this.catalogTable(objectType, category);
+    if (!table) {
+      return undefined;
+    }
+    return table.rows.map((row) => ({ code: row.code, label: row.label }));
+  }
+
+  catalogInfo():
+    | { builtAt: string; source: string; sourceVersion: string; path: string; docCount: number }
+    | undefined {
+    if (!this.catalog) {
+      return undefined;
+    }
+    return {
+      builtAt: this.catalog.builtAt,
+      source: this.catalog.source,
+      sourceVersion: this.catalog.sourceVersion,
+      path: this.catalogPath,
+      docCount: catalogDocCount(this.catalog),
+    };
   }
 
   /**
    * Prefetch JE/AE category lists, variables, and discovery indexes after startup.
+   * On success, rebuilds the in-memory catalog (and optionally rewrites the snapshot).
    * Failures are logged and swallowed so a cold SCB does not crash the MCP process.
-   * Bypass flags skip warming (same as interactive metadata tools).
+   * The bundled catalog keeps serving if live refresh fails.
    */
-  async warmMetadataCache(): Promise<{ skipped?: boolean; warmed: string[]; errors: string[] }> {
+  async warmMetadataCache(
+    options: { persist?: boolean } = {},
+  ): Promise<{ skipped?: boolean; warmed: string[]; errors: string[]; catalogRefreshed?: boolean }> {
     if (this.bypassMetadataCache) {
       this.log.info("SCB metadata warm skipped", { endpoint: "warm", cacheHit: true });
       return { skipped: true, warmed: [], errors: [] };
@@ -286,14 +377,16 @@ export class ScbClient {
     const objectTypes: ObjectType[] = ["company", "workplace"];
     for (const objectType of objectTypes) {
       const listed = await this.warmStep(`listCategories:${objectType}`, () =>
-        this.listCategories(objectType, false),
+        this.listCategories(objectType, false, { bypassCatalog: true }),
       );
       if (listed.ok) {
         warmed.push(`listCategories:${objectType}`);
       } else if (listed.error) {
         errors.push(listed.error);
       }
-      const vars = await this.warmStep(`listVariables:${objectType}`, () => this.listVariables(objectType, false));
+      const vars = await this.warmStep(`listVariables:${objectType}`, () =>
+        this.listVariables(objectType, false, { bypassCatalog: true }),
+      );
       if (vars.ok) {
         warmed.push(`listVariables:${objectType}`);
       } else if (vars.error) {
@@ -301,12 +394,44 @@ export class ScbClient {
       }
       for (const kind of LOOKUP_KINDS) {
         const key = `discovery:${objectType}:${kind}`;
-        const index = await this.warmStep(key, () => this.getDiscoveryIndex(objectType, {}, kind));
+        const index = await this.warmStep(key, () =>
+          this.getDiscoveryIndex(objectType, { bypassCatalog: true }, kind),
+        );
         if (index.ok) {
           warmed.push(key);
         } else if (index.error) {
           errors.push(index.error);
         }
+      }
+    }
+    let catalogRefreshed = false;
+    if (errors.length === 0 && warmed.length > 0) {
+      try {
+        const artifact = await buildCatalogFromClient(
+          {
+            listCategories: (objectType) => this.listCategories(objectType, false, { bypassCatalog: true }),
+            listVariables: (objectType) => this.listVariables(objectType, false, { bypassCatalog: true }),
+            getCategoryValues: (objectType, category) =>
+              this.getCategoryValues(objectType, category, { bypassCatalog: true }),
+          },
+          { source: "scb-live" },
+        );
+        this.installCatalog(artifact);
+        catalogRefreshed = true;
+        if (options.persist === true) {
+          writeCatalogToDisk(this.catalogPath, artifact);
+        }
+        this.log.info("SCB offline catalog refreshed", {
+          endpoint: "catalog",
+          count: catalogDocCount(artifact),
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        errors.push(`catalog:${message}`);
+        this.log.error("SCB offline catalog refresh failed; keeping bundled snapshot", {
+          endpoint: "catalog",
+          errorCode: "SCB_UNAVAILABLE",
+        });
       }
     }
     if (errors.length > 0) {
@@ -318,7 +443,7 @@ export class ScbClient {
     } else {
       this.log.info("SCB metadata warm complete", { endpoint: "warm", count: warmed.length });
     }
-    return { warmed, errors };
+    return { warmed, errors, ...(catalogRefreshed ? { catalogRefreshed } : {}) };
   }
 
   private async warmStep<T>(label: string, run: () => Promise<T>): Promise<{ ok: boolean; error?: string }> {
@@ -398,6 +523,88 @@ export class ScbClient {
       }
     }
     return tables;
+  }
+
+  private bootstrapCatalog(option: ScbClientOptions["offlineCatalog"], skipCertLoad: boolean): void {
+    if (option === false || catalogDisabled()) {
+      return;
+    }
+    if (option && typeof option === "object") {
+      this.installCatalog(option);
+      return;
+    }
+    if (skipCertLoad && option === undefined) {
+      return;
+    }
+    const loaded = loadCatalogFromDisk(this.catalogPath);
+    if (loaded) {
+      this.installCatalog(loaded);
+      this.log.info("SCB offline catalog loaded", {
+        endpoint: "catalog",
+        count: catalogDocCount(loaded),
+      });
+    }
+  }
+
+  private installCatalog(artifact: CatalogArtifact): void {
+    this.catalog = artifact;
+    this.catalogLayouts = new Map([
+      ["company", artifact.layouts.company],
+      ["workplace", artifact.layouts.workplace],
+    ]);
+    for (const objectType of ["company", "workplace"] as const) {
+      const layout = artifact.layouts[objectType];
+      const scbLayout = layoutFor(objectType);
+      this.metadataCache.set(`listCategories:${scbLayout}:0`, categoryListPayload(objectType, layout.categoryNames));
+      this.metadataCache.set(`listVariables:${scbLayout}:0`, variableListPayload(objectType, layout.variableNames));
+      for (const table of layout.tables) {
+        this.metadataCache.set(`kodtabell:${scbLayout}:${table.category}`, kodtabellPayload(table.rows));
+      }
+      this.discoveryCache.set(
+        discoveryCacheKey(objectType),
+        buildDiscoveryIndex(
+          objectType,
+          layout.tables.map((table) => ({ category: table.category, raw: kodtabellPayload(table.rows) })),
+        ),
+      );
+    }
+  }
+
+  private shouldServeCatalog(options: MetadataCallOptions): boolean {
+    return (
+      this.catalog !== undefined &&
+      options.bypassCache !== true &&
+      options.bypassCatalog !== true &&
+      !this.bypassMetadataCache
+    );
+  }
+
+  private catalogTable(objectType: ObjectType, category: string) {
+    const layout = this.catalogLayouts.get(objectType);
+    if (!layout) {
+      return undefined;
+    }
+    return findCatalogTable(layout, category);
+  }
+
+  private catalogDiscoveryIndex(objectType: ObjectType, options: MetadataCallOptions): DiscoveryIndex | undefined {
+    if (!this.shouldServeCatalog(options)) {
+      return undefined;
+    }
+    const cached = this.discoveryCache.get(discoveryCacheKey(objectType));
+    if (cached) {
+      return cached;
+    }
+    const layout = this.catalogLayouts.get(objectType);
+    if (!layout) {
+      return undefined;
+    }
+    const index = buildDiscoveryIndex(
+      objectType,
+      layout.tables.map((table) => ({ category: table.category, raw: kodtabellPayload(table.rows) })),
+    );
+    this.discoveryCache.set(discoveryCacheKey(objectType), index);
+    return index;
   }
 
   private cachedMetadataNames(key: string): string[] | undefined {

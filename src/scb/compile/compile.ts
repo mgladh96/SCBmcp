@@ -1,4 +1,4 @@
-import { DEFAULT_LOOKUP_LIMIT, extractCodeRows, fold } from "../../domain/catalog.js";
+import { DEFAULT_LOOKUP_LIMIT, extractCodeRows, fold, type CodeRow } from "../../domain/catalog.js";
 import { ScbError } from "../../domain/errors.js";
 import { discoverCodes, type CodeLookupMatch } from "../code-lookup.js";
 import { extractMetadataItems } from "../payload.js";
@@ -30,8 +30,8 @@ export async function compileStructuredQuery(
   client: CompileMetadataSource,
 ): Promise<CompileResult> {
   const objectType = query.objectType;
-  const categoryNames = namesFrom(await client.listCategories(objectType, false));
-  const variableNames = namesFrom(await client.listVariables(objectType, false));
+  const categoryNames = await resolveCategoryNames(client, objectType);
+  const variableNames = await resolveVariableNames(client, objectType);
   const catalogNames = unique([...categoryNames, ...variableNames]);
 
   const filters: ScbFilters = { categories: [], variables: [] };
@@ -61,6 +61,31 @@ function namesFrom(raw: unknown): string[] {
   return extractMetadataItems(raw)
     .map((item) => item.name)
     .filter((name) => name.length > 0);
+}
+
+async function resolveCategoryNames(client: CompileMetadataSource, objectType: ObjectType): Promise<string[]> {
+  const fromCatalog = client.offlineCategoryNames?.(objectType);
+  if (fromCatalog && fromCatalog.length > 0) {
+    return fromCatalog;
+  }
+  return namesFrom(await client.listCategories(objectType, false));
+}
+
+async function resolveVariableNames(client: CompileMetadataSource, objectType: ObjectType): Promise<string[]> {
+  const fromCatalog = client.offlineVariableNames?.(objectType);
+  if (fromCatalog && fromCatalog.length > 0) {
+    return fromCatalog;
+  }
+  return namesFrom(await client.listVariables(objectType, false));
+}
+
+function codeRowsFrom(
+  client: CompileMetadataSource,
+  objectType: ObjectType,
+  category: string,
+): CodeRow[] | undefined {
+  const rows = client.offlineCodeRows?.(objectType, category);
+  return rows && rows.length > 0 ? rows : undefined;
 }
 
 function unique(values: string[]): string[] {
@@ -109,9 +134,9 @@ async function applyStatus(
     return;
   }
 
-  let rows: ReturnType<typeof extractCodeRows> = [];
+  let rows: CodeRow[] = [];
   try {
-    rows = extractCodeRows(await client.getCategoryValues(objectType, category));
+    rows = codeRowsFrom(client, objectType, category) ?? extractCodeRows(await client.getCategoryValues(objectType, category));
   } catch (error) {
     if (error instanceof ScbError) {
       unresolved.push({
@@ -279,9 +304,9 @@ async function applyEmployees(
     return;
   }
 
-  let rows: ReturnType<typeof extractCodeRows> = [];
+  let rows: CodeRow[] = [];
   try {
-    rows = extractCodeRows(await client.getCategoryValues(objectType, category));
+    rows = codeRowsFrom(client, objectType, category) ?? extractCodeRows(await client.getCategoryValues(objectType, category));
   } catch (error) {
     if (error instanceof ScbError) {
       unresolved.push({ constraint: "employees", requested: slot, reason: error.message });

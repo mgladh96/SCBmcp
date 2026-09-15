@@ -20,6 +20,13 @@ async function main(): Promise<void> {
     },
     logLevel: config.logLevel,
   });
+  const catalog = client.catalogInfo();
+  if (catalog) {
+    log.info("SCB offline catalog ready", {
+      endpoint: "catalog",
+      count: catalog.docCount,
+    });
+  }
   const handlers = createToolHandlers(client, log);
   const httpServer = createSseHttpServer({
     createMcpServer: () => createMcpServer(handlers),
@@ -40,7 +47,7 @@ async function main(): Promise<void> {
     auth: config.authToken ? "required" : "disabled",
   });
 
-  void client.warmMetadataCache().catch((error: unknown) => {
+  void client.warmMetadataCache({ persist: true }).catch((error: unknown) => {
     log.error("SCB metadata warm crashed", {
       errorCode: error instanceof ScbError ? error.code : "SCB_UNAVAILABLE",
     });

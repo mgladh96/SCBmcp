@@ -15,6 +15,7 @@ type LogFields = {
   retryAfterMs?: number;
   waitedMs?: number;
   cacheHit?: boolean;
+  queryStatus?: string;
 };
 
 const SENSITIVE_KEY = /password|passphrase|pfx|private.?key|cert(?:ificate)?|token|secret|authorization/i;

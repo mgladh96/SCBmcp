@@ -10,14 +10,7 @@ En agent kan:
 
 1. **`scb_query`** med StructuredQuery (primär happy path): räkna+hämta, eller `status: "choose"` / `"impossible"` utan extra discovery-runda
 2. Valfritt kompilera StructuredQuery (`scb_compile_query`, dry-run — krävs inte)
-3. Utforska cacheade kodtabeller (`scb_discover` / alias `scb_lookup_codes`) — discovery-first: filterklara träffar (category+code) från faktisk SCB-metadata, t.ex. Gävleborg → Län/`21`. Inga query→SNI-kod-mappningar.
-4. Dry-run:a ett rått filter (`scb_explain_query`) och se serialiserad SCB POST **utan** HTTP mot SCB
-5. Inspektera kategorier och variabler som det konfigurerade SCB-kontot får använda
-6. Hämta kodtabeller för en kategori (sökbar, trunkerad; full dump bara vid explicit begäran)
-7. Räkna företag (JE, juridisk enhet)
-8. Hämta företag när antalet träffar är ≤ 2 000 (MCP projicerar fält och `maxRows`, standard 75)
-9. Räkna arbetsställen (AE, arbetsställe)
-10. Hämta arbetsställen
+3. Utforska den **lokala kodkatalogen** (`scb_discover` / alias `scb_lookup_codes`) — discovery-first: filterklara träffar (category+code) från bundlad SCB-metadata, t.ex. Gävleborg → Län/`21`. Inga query→SNI-kod-mappningar.
 4. Dry-run:a ett rått filter (`scb_explain_query`) och se serialiserad SCB POST **utan** HTTP mot SCB
 5. Inspektera kategorier och variabler som det konfigurerade SCB-kontot får använda
 6. Hämta kodtabeller för en kategori (sökbar, trunkerad; full dump bara vid explicit begäran)
@@ -84,6 +77,8 @@ Hjälpsidor (certifikat krävs):
 | `MCP_AUTH_TOKEN` | rekommenderas | Delad hemlighet för MCP HTTP/SSE (`/sse`, `/messages`). Obligatorisk när `MCP_HOST` inte är loopback. |
 | `SCB_LIVE_TESTS` | nej | Sätt till `true` endast när du kör live-tester mot SCB |
 | `SCB_METADATA_CACHE_BYPASS` | nej | `true` hoppar över processcachen för kategorier, variabler och kodtabeller |
+| `SCB_CATALOG_PATH` | nej | Sökväg till offline-katalogen. Standard `data/scb-catalog/catalog.json` |
+| `SCB_CATALOG_DISABLE` | nej | `true` laddar inte den bundlade katalogen (endast live-metadata) |
 | `SCB_AE_STATUS_TOP_LEVEL` | nej | **Default `true` (toppnivå) tills live `/help/exampleAe` bekräftas — ändras inte utan evidens.** `false` / `kategorier` skickar `Arbetsställestatus` i `Kategorier[]`. |
 
 Kopiera `.env.example`. Lägg inte hemligheter i git.
@@ -391,11 +386,29 @@ Om count > 2 000 returnerar verktygen:
 
 Lokalt rate limit (10 / 10 s) **väntar inte tyst**. Agenten får `SCB_RATE_LIMITED` med `nextAction: "retry_same"` och `details.retryAfterMs`. HTTP 429 från SCB mappar samma kod. Loggar kan innehålla `waitedMs` (0 när anropet avvisas lokalt).
 
-Kategorier, variabler och kodtabeller cacheas i processen i flera timmar (SCB uppdaterar över natten). Vid uppstart värms JE/AE-kategorilistor och discovery-index i bakgrunden så första interaktiva frågan inte spränger 10/10s-kvoten. Misslyckad varmkörning loggas och kraschar inte starten. `bypassCache` på metadataverktygen eller `SCB_METADATA_CACHE_BYPASS=true` tvingar live-anrop (varmkörning hoppas då över). `scb_schema_summary` och `scb_discover` återanvänder samma cache.
+Kategorier, variabler och kodtabeller cacheas i processen i flera timmar (SCB uppdaterar över natten). Vid uppstart **laddas den bundlade kodkatalogen från disk** (millisekunder). Live-SCB värms i bakgrunden och skriver om snapshot om den lyckas; vid fel fortsätter servern på den bundlade katalogen. `bypassCache` på metadataverktygen eller `SCB_METADATA_CACHE_BYPASS=true` tvingar live-anrop (varmkörning hoppas då över). `scb_schema_summary` och `scb_discover` återanvänder katalogen.
+
+### Offline kodkatalog (lokal resolution, live bara för företagssök)
+
+Bransch, geografi och storleksklass slås upp i `data/scb-catalog/catalog.json` — genererad från SCB-metadata (`listCategories` + `getCategoryValues`), inte en handhållen `städ → 81`-tabell. Agentvägen är **katalog → live rakna/hamta**. Normal `scb_query` gör noll live-metadataanrop när katalogen finns.
+
+Uppdatera katalogen (kräver SCB-certifikat):
+
+```bash
+pnpm catalog:refresh
+```
+
+CI/dev utan certifikat kan återskapa den incheckade fixturen:
+
+```bash
+pnpm catalog:refresh:fixture
+```
+
+`builtAt` och `sourceVersion` i artifacten är till för felsökning. `SCB_CATALOG_DISABLE=true` tvingar live-metadata.
 
 ### Discovery-first (filterklara träffar)
 
-Kärnflödet är **Discovery → koder → count/search**. `scb_lookup_codes` söker i ett in-memory-index byggt från cacheade `listCategories` + `getCategoryValues` (lexikal BM25-lik ranking, ingen LLM, inga embeddings).
+Kärnflödet är **lokal katalog → koder → live count/search**. `scb_discover` söker i BM25-indexet byggt från den bundlade katalogen (lexikal ranking, ingen LLM, inga embeddings).
 
 - Varje träff har `category` + `code` (plus `kind`, `label`, `score`; SNI även `level`, `parentCode`, `hasChildren`) så agenten kan kopiera dem rakt in i filter.
 - På kategorin **Bransch** skicka `branchLevel = min(3, level)`.
@@ -425,6 +438,7 @@ pnpm typecheck
 pnpm lint
 pnpm test
 pnpm discovery-eval
+pnpm catalog:refresh:fixture
 pnpm golden-path
 pnpm blind-eval
 ```

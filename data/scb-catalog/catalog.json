@@ -1,0 +1,1039 @@
+{
+  "formatVersion": 1,
+  "builtAt": "2026-09-15T00:00:00.000Z",
+  "source": "fixture",
+  "sourceVersion": "eval-diverse+cleaning",
+  "layouts": {
+    "company": {
+      "objectType": "company",
+      "categoryNames": [
+        "Företagsstatus",
+        "Registreringsstatus",
+        "Säteslän",
+        "Säteskommun",
+        "SätesARegion",
+        "Anställda",
+        "2-siffrig bransch 1",
+        "Bransch",
+        "Omsättningsklass fin"
+      ],
+      "variableNames": [
+        "Namn",
+        "Firma",
+        "Företagsnamn",
+        "OrgNr (10 siffror)",
+        "OrgNr (12 siffror)"
+      ],
+      "tables": [
+        {
+          "category": "Företagsstatus",
+          "kind": "status",
+          "rows": [
+            {
+              "code": "1",
+              "label": "verksam"
+            },
+            {
+              "code": "0",
+              "label": "aldrig verksam"
+            },
+            {
+              "code": "9",
+              "label": "ej verksam"
+            }
+          ]
+        },
+        {
+          "category": "Registreringsstatus",
+          "kind": "status",
+          "rows": [
+            {
+              "code": "1",
+              "label": "skatteregistrerad"
+            }
+          ]
+        },
+        {
+          "category": "Säteslän",
+          "kind": "geography",
+          "rows": [
+            {
+              "code": "01",
+              "label": "Stockholms län"
+            },
+            {
+              "code": "12",
+              "label": "Skåne län"
+            },
+            {
+              "code": "14",
+              "label": "Västra Götalands län"
+            },
+            {
+              "code": "21",
+              "label": "Gävleborgs län"
+            },
+            {
+              "code": "23",
+              "label": "Jämtlands län"
+            },
+            {
+              "code": "25",
+              "label": "Norrbottens län"
+            }
+          ]
+        },
+        {
+          "category": "Säteskommun",
+          "kind": "geography",
+          "rows": [
+            {
+              "code": "0180",
+              "label": "Stockholm"
+            },
+            {
+              "code": "1280",
+              "label": "Malmö"
+            },
+            {
+              "code": "1480",
+              "label": "Göteborg"
+            },
+            {
+              "code": "2180",
+              "label": "Gävle"
+            },
+            {
+              "code": "2281",
+              "label": "Sundsvall"
+            },
+            {
+              "code": "2380",
+              "label": "Östersund"
+            },
+            {
+              "code": "2580",
+              "label": "Luleå"
+            }
+          ]
+        },
+        {
+          "category": "SätesARegion",
+          "kind": "geography",
+          "rows": [
+            {
+              "code": "SE110",
+              "label": "Stockholms län"
+            },
+            {
+              "code": "SE322",
+              "label": "Jämtlands län"
+            }
+          ]
+        },
+        {
+          "category": "Anställda",
+          "kind": "size",
+          "rows": [
+            {
+              "code": "0",
+              "label": "0 anställda"
+            },
+            {
+              "code": "1",
+              "label": "1-4 anställda"
+            },
+            {
+              "code": "2",
+              "label": "5-9 anställda"
+            },
+            {
+              "code": "4",
+              "label": "10-19 anställda"
+            },
+            {
+              "code": "5",
+              "label": "20-49 anställda"
+            },
+            {
+              "code": "6",
+              "label": "50-99 anställda"
+            },
+            {
+              "code": "7",
+              "label": "100-199 anställda"
+            }
+          ]
+        },
+        {
+          "category": "2-siffrig bransch 1",
+          "kind": "industry",
+          "rows": [
+            {
+              "code": "22",
+              "label": "Tillverkning av byggplast",
+              "level": 2,
+              "parentCode": "C",
+              "hasChildren": false
+            },
+            {
+              "code": "30",
+              "label": "Byggande av fartyg och båtar",
+              "level": 2,
+              "parentCode": "C",
+              "hasChildren": false
+            },
+            {
+              "code": "41",
+              "label": "Byggande av hus",
+              "level": 2,
+              "parentCode": "F",
+              "hasChildren": true
+            },
+            {
+              "code": "42",
+              "label": "Anläggningsarbeten",
+              "level": 2,
+              "parentCode": "F",
+              "hasChildren": false
+            },
+            {
+              "code": "43",
+              "label": "Specialiserad bygg- och anläggningsverksamhet",
+              "level": 2,
+              "parentCode": "F",
+              "hasChildren": false
+            },
+            {
+              "code": "16",
+              "label": "Tillverkning av varor av trä för bygg",
+              "level": 2,
+              "parentCode": "C",
+              "hasChildren": false
+            },
+            {
+              "code": "23",
+              "label": "Tillverkning av andra icke-metalliska mineraliska produkter för bygg",
+              "level": 2,
+              "parentCode": "C",
+              "hasChildren": false
+            },
+            {
+              "code": "25",
+              "label": "Tillverkning av metallvaror för bygg",
+              "level": 2,
+              "parentCode": "C",
+              "hasChildren": false
+            },
+            {
+              "code": "28",
+              "label": "Tillverkning av maskiner för bygg",
+              "level": 2,
+              "parentCode": "C",
+              "hasChildren": false
+            },
+            {
+              "code": "46",
+              "label": "Partihandel med byggvaror",
+              "level": 2,
+              "parentCode": "G",
+              "hasChildren": false
+            },
+            {
+              "code": "47",
+              "label": "Detaljhandel utom med motorfordon och motorcyklar",
+              "level": 2,
+              "parentCode": "G",
+              "hasChildren": true
+            },
+            {
+              "code": "49",
+              "label": "Landtransport; transport i rörsystem",
+              "level": 2,
+              "parentCode": "H",
+              "hasChildren": true
+            },
+            {
+              "code": "56",
+              "label": "Restaurangverksamhet",
+              "level": 2,
+              "parentCode": "I",
+              "hasChildren": true
+            },
+            {
+              "code": "62",
+              "label": "Dataprogrammering, konsultverksamhet avseende informationsteknik",
+              "level": 2,
+              "parentCode": "J",
+              "hasChildren": true
+            },
+            {
+              "code": "70",
+              "label": "Verksamhet vid huvudkontor; konsultverksamhet",
+              "level": 2,
+              "parentCode": "M",
+              "hasChildren": true
+            },
+            {
+              "code": "81",
+              "label": "Fastighetsserviceverksamhet",
+              "level": 2,
+              "parentCode": "N",
+              "hasChildren": true
+            }
+          ]
+        },
+        {
+          "category": "Bransch",
+          "kind": "industry",
+          "rows": [
+            {
+              "code": "22",
+              "label": "Tillverkning av byggplast",
+              "level": 2,
+              "parentCode": "C",
+              "hasChildren": false
+            },
+            {
+              "code": "30",
+              "label": "Byggande av fartyg och båtar",
+              "level": 2,
+              "parentCode": "C",
+              "hasChildren": false
+            },
+            {
+              "code": "41",
+              "label": "Byggande av hus",
+              "level": 2,
+              "parentCode": "F",
+              "hasChildren": true
+            },
+            {
+              "code": "42",
+              "label": "Anläggningsarbeten",
+              "level": 2,
+              "parentCode": "F",
+              "hasChildren": false
+            },
+            {
+              "code": "43",
+              "label": "Specialiserad bygg- och anläggningsverksamhet",
+              "level": 2,
+              "parentCode": "F",
+              "hasChildren": false
+            },
+            {
+              "code": "16",
+              "label": "Tillverkning av varor av trä för bygg",
+              "level": 2,
+              "parentCode": "C",
+              "hasChildren": false
+            },
+            {
+              "code": "23",
+              "label": "Tillverkning av andra icke-metalliska mineraliska produkter för bygg",
+              "level": 2,
+              "parentCode": "C",
+              "hasChildren": false
+            },
+            {
+              "code": "25",
+              "label": "Tillverkning av metallvaror för bygg",
+              "level": 2,
+              "parentCode": "C",
+              "hasChildren": false
+            },
+            {
+              "code": "28",
+              "label": "Tillverkning av maskiner för bygg",
+              "level": 2,
+              "parentCode": "C",
+              "hasChildren": false
+            },
+            {
+              "code": "46",
+              "label": "Partihandel med byggvaror",
+              "level": 2,
+              "parentCode": "G",
+              "hasChildren": false
+            },
+            {
+              "code": "F",
+              "label": "Byggverksamhet",
+              "level": 1,
+              "hasChildren": true
+            },
+            {
+              "code": "G",
+              "label": "Handel; reparation av motorfordon och motorcyklar",
+              "level": 1,
+              "hasChildren": true
+            },
+            {
+              "code": "H",
+              "label": "Transport och magasinering",
+              "level": 1,
+              "hasChildren": true
+            },
+            {
+              "code": "I",
+              "label": "Hotell- och restaurangverksamhet",
+              "level": 1,
+              "hasChildren": true
+            },
+            {
+              "code": "J",
+              "label": "Informations- och kommunikationsverksamhet",
+              "level": 1,
+              "hasChildren": true
+            },
+            {
+              "code": "47",
+              "label": "Detaljhandel utom med motorfordon och motorcyklar",
+              "level": 2,
+              "parentCode": "G",
+              "hasChildren": true
+            },
+            {
+              "code": "49",
+              "label": "Landtransport; transport i rörsystem",
+              "level": 2,
+              "parentCode": "H",
+              "hasChildren": true
+            },
+            {
+              "code": "56",
+              "label": "Restaurangverksamhet",
+              "level": 2,
+              "parentCode": "I",
+              "hasChildren": true
+            },
+            {
+              "code": "62",
+              "label": "Dataprogrammering, konsultverksamhet avseende informationsteknik",
+              "level": 2,
+              "parentCode": "J",
+              "hasChildren": true
+            },
+            {
+              "code": "70",
+              "label": "Verksamhet vid huvudkontor; konsultverksamhet",
+              "level": 2,
+              "parentCode": "M",
+              "hasChildren": true
+            },
+            {
+              "code": "41200",
+              "label": "Byggande av bostadshus",
+              "level": 5,
+              "parentCode": "41",
+              "hasChildren": false
+            },
+            {
+              "code": "47111",
+              "label": "Detaljhandel med livsmedel",
+              "level": 5,
+              "parentCode": "47",
+              "hasChildren": false
+            },
+            {
+              "code": "49410",
+              "label": "Vägtransport av gods",
+              "level": 5,
+              "parentCode": "49",
+              "hasChildren": false
+            },
+            {
+              "code": "56100",
+              "label": "Restauranger",
+              "level": 5,
+              "parentCode": "56",
+              "hasChildren": false
+            },
+            {
+              "code": "56101",
+              "label": "Caféverksamhet",
+              "level": 5,
+              "parentCode": "56",
+              "hasChildren": false
+            },
+            {
+              "code": "56102",
+              "label": "Kaféer och konditorier",
+              "level": 5,
+              "parentCode": "56",
+              "hasChildren": false
+            },
+            {
+              "code": "62010",
+              "label": "Dataprogrammering",
+              "level": 5,
+              "parentCode": "62",
+              "hasChildren": false
+            },
+            {
+              "code": "62020",
+              "label": "Datakonsulter",
+              "level": 5,
+              "parentCode": "62",
+              "hasChildren": false
+            },
+            {
+              "code": "N",
+              "label": "Uthyrning, fastighetsservice, resetjänster och andra stödtjänster",
+              "level": 1,
+              "hasChildren": true
+            },
+            {
+              "code": "81",
+              "label": "Fastighetsserviceverksamhet",
+              "level": 2,
+              "parentCode": "N",
+              "hasChildren": true
+            },
+            {
+              "code": "812",
+              "label": "Städtjänster",
+              "level": 3,
+              "parentCode": "81",
+              "hasChildren": true
+            },
+            {
+              "code": "8121",
+              "label": "Allmän städning av byggnader",
+              "level": 4,
+              "parentCode": "812",
+              "hasChildren": true
+            },
+            {
+              "code": "81210",
+              "label": "Rengöring och städning av byggnader",
+              "level": 5,
+              "parentCode": "8121",
+              "hasChildren": false
+            },
+            {
+              "code": "81290",
+              "label": "Övrig rengöring",
+              "level": 5,
+              "parentCode": "812",
+              "hasChildren": false
+            },
+            {
+              "code": "70220",
+              "label": "Konsultverksamhet avseende företags organisation",
+              "level": 5,
+              "parentCode": "70",
+              "hasChildren": false
+            }
+          ]
+        }
+      ]
+    },
+    "workplace": {
+      "objectType": "workplace",
+      "categoryNames": [
+        "Arbetsställestatus",
+        "Län",
+        "Kommun",
+        "ARegion",
+        "2-siffrig bransch 1",
+        "Bransch",
+        "Anställda",
+        "Omsättningsklass fin"
+      ],
+      "variableNames": [
+        "Benämning",
+        "CfarNr",
+        "OrgNr (12 siffror)"
+      ],
+      "tables": [
+        {
+          "category": "Arbetsställestatus",
+          "kind": "status",
+          "rows": [
+            {
+              "code": "1",
+              "label": "verksam"
+            }
+          ]
+        },
+        {
+          "category": "Län",
+          "kind": "geography",
+          "rows": [
+            {
+              "code": "01",
+              "label": "Stockholms län"
+            },
+            {
+              "code": "12",
+              "label": "Skåne län"
+            },
+            {
+              "code": "14",
+              "label": "Västra Götalands län"
+            },
+            {
+              "code": "21",
+              "label": "Gävleborgs län"
+            },
+            {
+              "code": "23",
+              "label": "Jämtlands län"
+            },
+            {
+              "code": "25",
+              "label": "Norrbottens län"
+            }
+          ]
+        },
+        {
+          "category": "Kommun",
+          "kind": "geography",
+          "rows": [
+            {
+              "code": "0180",
+              "label": "Stockholm"
+            },
+            {
+              "code": "1280",
+              "label": "Malmö"
+            },
+            {
+              "code": "1480",
+              "label": "Göteborg"
+            },
+            {
+              "code": "2180",
+              "label": "Gävle"
+            },
+            {
+              "code": "2281",
+              "label": "Sundsvall"
+            },
+            {
+              "code": "2380",
+              "label": "Östersund"
+            },
+            {
+              "code": "2580",
+              "label": "Luleå"
+            }
+          ]
+        },
+        {
+          "category": "ARegion",
+          "kind": "geography",
+          "rows": [
+            {
+              "code": "SE110",
+              "label": "Stockholms län"
+            },
+            {
+              "code": "SE322",
+              "label": "Jämtlands län"
+            }
+          ]
+        },
+        {
+          "category": "2-siffrig bransch 1",
+          "kind": "industry",
+          "rows": [
+            {
+              "code": "22",
+              "label": "Tillverkning av byggplast",
+              "level": 2,
+              "parentCode": "C",
+              "hasChildren": false
+            },
+            {
+              "code": "30",
+              "label": "Byggande av fartyg och båtar",
+              "level": 2,
+              "parentCode": "C",
+              "hasChildren": false
+            },
+            {
+              "code": "41",
+              "label": "Byggande av hus",
+              "level": 2,
+              "parentCode": "F",
+              "hasChildren": true
+            },
+            {
+              "code": "42",
+              "label": "Anläggningsarbeten",
+              "level": 2,
+              "parentCode": "F",
+              "hasChildren": false
+            },
+            {
+              "code": "43",
+              "label": "Specialiserad bygg- och anläggningsverksamhet",
+              "level": 2,
+              "parentCode": "F",
+              "hasChildren": false
+            },
+            {
+              "code": "16",
+              "label": "Tillverkning av varor av trä för bygg",
+              "level": 2,
+              "parentCode": "C",
+              "hasChildren": false
+            },
+            {
+              "code": "23",
+              "label": "Tillverkning av andra icke-metalliska mineraliska produkter för bygg",
+              "level": 2,
+              "parentCode": "C",
+              "hasChildren": false
+            },
+            {
+              "code": "25",
+              "label": "Tillverkning av metallvaror för bygg",
+              "level": 2,
+              "parentCode": "C",
+              "hasChildren": false
+            },
+            {
+              "code": "28",
+              "label": "Tillverkning av maskiner för bygg",
+              "level": 2,
+              "parentCode": "C",
+              "hasChildren": false
+            },
+            {
+              "code": "46",
+              "label": "Partihandel med byggvaror",
+              "level": 2,
+              "parentCode": "G",
+              "hasChildren": false
+            },
+            {
+              "code": "47",
+              "label": "Detaljhandel utom med motorfordon och motorcyklar",
+              "level": 2,
+              "parentCode": "G",
+              "hasChildren": true
+            },
+            {
+              "code": "49",
+              "label": "Landtransport; transport i rörsystem",
+              "level": 2,
+              "parentCode": "H",
+              "hasChildren": true
+            },
+            {
+              "code": "56",
+              "label": "Restaurangverksamhet",
+              "level": 2,
+              "parentCode": "I",
+              "hasChildren": true
+            },
+            {
+              "code": "62",
+              "label": "Dataprogrammering, konsultverksamhet avseende informationsteknik",
+              "level": 2,
+              "parentCode": "J",
+              "hasChildren": true
+            },
+            {
+              "code": "70",
+              "label": "Verksamhet vid huvudkontor; konsultverksamhet",
+              "level": 2,
+              "parentCode": "M",
+              "hasChildren": true
+            },
+            {
+              "code": "81",
+              "label": "Fastighetsserviceverksamhet",
+              "level": 2,
+              "parentCode": "N",
+              "hasChildren": true
+            }
+          ]
+        },
+        {
+          "category": "Bransch",
+          "kind": "industry",
+          "rows": [
+            {
+              "code": "22",
+              "label": "Tillverkning av byggplast",
+              "level": 2,
+              "parentCode": "C",
+              "hasChildren": false
+            },
+            {
+              "code": "30",
+              "label": "Byggande av fartyg och båtar",
+              "level": 2,
+              "parentCode": "C",
+              "hasChildren": false
+            },
+            {
+              "code": "41",
+              "label": "Byggande av hus",
+              "level": 2,
+              "parentCode": "F",
+              "hasChildren": true
+            },
+            {
+              "code": "42",
+              "label": "Anläggningsarbeten",
+              "level": 2,
+              "parentCode": "F",
+              "hasChildren": false
+            },
+            {
+              "code": "43",
+              "label": "Specialiserad bygg- och anläggningsverksamhet",
+              "level": 2,
+              "parentCode": "F",
+              "hasChildren": false
+            },
+            {
+              "code": "16",
+              "label": "Tillverkning av varor av trä för bygg",
+              "level": 2,
+              "parentCode": "C",
+              "hasChildren": false
+            },
+            {
+              "code": "23",
+              "label": "Tillverkning av andra icke-metalliska mineraliska produkter för bygg",
+              "level": 2,
+              "parentCode": "C",
+              "hasChildren": false
+            },
+            {
+              "code": "25",
+              "label": "Tillverkning av metallvaror för bygg",
+              "level": 2,
+              "parentCode": "C",
+              "hasChildren": false
+            },
+            {
+              "code": "28",
+              "label": "Tillverkning av maskiner för bygg",
+              "level": 2,
+              "parentCode": "C",
+              "hasChildren": false
+            },
+            {
+              "code": "46",
+              "label": "Partihandel med byggvaror",
+              "level": 2,
+              "parentCode": "G",
+              "hasChildren": false
+            },
+            {
+              "code": "F",
+              "label": "Byggverksamhet",
+              "level": 1,
+              "hasChildren": true
+            },
+            {
+              "code": "G",
+              "label": "Handel; reparation av motorfordon och motorcyklar",
+              "level": 1,
+              "hasChildren": true
+            },
+            {
+              "code": "H",
+              "label": "Transport och magasinering",
+              "level": 1,
+              "hasChildren": true
+            },
+            {
+              "code": "I",
+              "label": "Hotell- och restaurangverksamhet",
+              "level": 1,
+              "hasChildren": true
+            },
+            {
+              "code": "J",
+              "label": "Informations- och kommunikationsverksamhet",
+              "level": 1,
+              "hasChildren": true
+            },
+            {
+              "code": "47",
+              "label": "Detaljhandel utom med motorfordon och motorcyklar",
+              "level": 2,
+              "parentCode": "G",
+              "hasChildren": true
+            },
+            {
+              "code": "49",
+              "label": "Landtransport; transport i rörsystem",
+              "level": 2,
+              "parentCode": "H",
+              "hasChildren": true
+            },
+            {
+              "code": "56",
+              "label": "Restaurangverksamhet",
+              "level": 2,
+              "parentCode": "I",
+              "hasChildren": true
+            },
+            {
+              "code": "62",
+              "label": "Dataprogrammering, konsultverksamhet avseende informationsteknik",
+              "level": 2,
+              "parentCode": "J",
+              "hasChildren": true
+            },
+            {
+              "code": "70",
+              "label": "Verksamhet vid huvudkontor; konsultverksamhet",
+              "level": 2,
+              "parentCode": "M",
+              "hasChildren": true
+            },
+            {
+              "code": "41200",
+              "label": "Byggande av bostadshus",
+              "level": 5,
+              "parentCode": "41",
+              "hasChildren": false
+            },
+            {
+              "code": "47111",
+              "label": "Detaljhandel med livsmedel",
+              "level": 5,
+              "parentCode": "47",
+              "hasChildren": false
+            },
+            {
+              "code": "49410",
+              "label": "Vägtransport av gods",
+              "level": 5,
+              "parentCode": "49",
+              "hasChildren": false
+            },
+            {
+              "code": "56100",
+              "label": "Restauranger",
+              "level": 5,
+              "parentCode": "56",
+              "hasChildren": false
+            },
+            {
+              "code": "56101",
+              "label": "Caféverksamhet",
+              "level": 5,
+              "parentCode": "56",
+              "hasChildren": false
+            },
+            {
+              "code": "56102",
+              "label": "Kaféer och konditorier",
+              "level": 5,
+              "parentCode": "56",
+              "hasChildren": false
+            },
+            {
+              "code": "62010",
+              "label": "Dataprogrammering",
+              "level": 5,
+              "parentCode": "62",
+              "hasChildren": false
+            },
+            {
+              "code": "62020",
+              "label": "Datakonsulter",
+              "level": 5,
+              "parentCode": "62",
+              "hasChildren": false
+            },
+            {
+              "code": "N",
+              "label": "Uthyrning, fastighetsservice, resetjänster och andra stödtjänster",
+              "level": 1,
+              "hasChildren": true
+            },
+            {
+              "code": "81",
+              "label": "Fastighetsserviceverksamhet",
+              "level": 2,
+              "parentCode": "N",
+              "hasChildren": true
+            },
+            {
+              "code": "812",
+              "label": "Städtjänster",
+              "level": 3,
+              "parentCode": "81",
+              "hasChildren": true
+            },
+            {
+              "code": "8121",
+              "label": "Allmän städning av byggnader",
+              "level": 4,
+              "parentCode": "812",
+              "hasChildren": true
+            },
+            {
+              "code": "81210",
+              "label": "Rengöring och städning av byggnader",
+              "level": 5,
+              "parentCode": "8121",
+              "hasChildren": false
+            },
+            {
+              "code": "81290",
+              "label": "Övrig rengöring",
+              "level": 5,
+              "parentCode": "812",
+              "hasChildren": false
+            },
+            {
+              "code": "70220",
+              "label": "Konsultverksamhet avseende företags organisation",
+              "level": 5,
+              "parentCode": "70",
+              "hasChildren": false
+            }
+          ]
+        },
+        {
+          "category": "Anställda",
+          "kind": "size",
+          "rows": [
+            {
+              "code": "0",
+              "label": "0 anställda"
+            },
+            {
+              "code": "1",
+              "label": "1-4 anställda"
+            },
+            {
+              "code": "2",
+              "label": "5-9 anställda"
+            },
+            {
+              "code": "4",
+              "label": "10-19 anställda"
+            },
+            {
+              "code": "5",
+              "label": "20-49 anställda"
+            },
+            {
+              "code": "6",
+              "label": "50-99 anställda"
+            },
+            {
+              "code": "7",
+              "label": "100-199 anställda"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

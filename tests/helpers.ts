@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { ScbClient, type FetchLike } from "../src/scb/client.js";
 import type { ScbAuthConfig } from "../src/scb/auth.js";
 import type { SlidingWindowRateLimiter } from "../src/scb/rate-limit.js";
+import type { CatalogArtifact } from "../src/scb/offline-catalog.js";
 import {
   LIVE_NOISY_TWO_DIGIT_BRANSCH,
   LIVE_TWO_DIGIT_BRANSCH_CATEGORY,
@@ -42,6 +43,7 @@ export function createTestClient(
     bypassMetadataCache?: boolean;
     rateLimiter?: SlidingWindowRateLimiter;
     sleep?: (ms: number) => Promise<void>;
+    offlineCatalog?: CatalogArtifact | string | false;
   } = {},
 ): ScbClient {
   return new ScbClient({
@@ -51,6 +53,7 @@ export function createTestClient(
     skipCertLoad: true,
     logLevel: "error",
     bypassMetadataCache: extras.bypassMetadataCache ?? false,
+    offlineCatalog: extras.offlineCatalog ?? false,
     ...(extras.rateLimiter ? { rateLimiter: extras.rateLimiter } : {}),
     ...(extras.sleep ? { sleep: extras.sleep } : {}),
   });

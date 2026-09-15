@@ -183,8 +183,10 @@ async function compiledPassthrough(
   input: CountThenFetchInput & { filters: NonNullable<CountThenFetchInput["filters"]> },
 ): Promise<CompileResult> {
   const objectType = input.objectType;
-  const categoryNames = namesFrom(await client.listCategories(objectType, false));
-  const variableNames = namesFrom(await client.listVariables(objectType, false));
+  const categoryNames =
+    client.offlineCategoryNames?.(objectType) ?? namesFrom(await client.listCategories(objectType, false));
+  const variableNames =
+    client.offlineVariableNames?.(objectType) ?? namesFrom(await client.listVariables(objectType, false));
   const { fields, missing } = resolveSemanticFields(
     objectType,
     input.fields,
