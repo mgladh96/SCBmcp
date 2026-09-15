@@ -24,6 +24,8 @@ describe("catalog classification", () => {
     expect(classifyCategoryKind("AnstSME")).toBe("size");
     expect(classifyVariableKind("Företagsnamn")).toBe("name");
     expect(classifyVariableKind("PeOrgNr")).toBe("identity");
+    expect(classifyVariableKind("OrgNr (10 siffror)")).toBe("identity");
+    expect(classifyVariableKind("OrgNr (12 siffror)")).toBe("identity");
   });
 });
 
@@ -49,6 +51,14 @@ describe("code matching", () => {
     });
     expect(codeRowMatches(rows[0]!, "Gävleborg")).toBeGreaterThan(0);
     expect(codeRowMatches(rows[1]!, "Gävleborg")).toBe(0);
+  });
+
+  it("uses Varde as code and Text as label on live kodtabell rows", () => {
+    const rows = extractCodeRows({
+      Varden: [{ Varde: "21", Text: "Gävleborg" }],
+    });
+    expect(rows[0]).toEqual({ code: "21", label: "Gävleborg" });
+    expect(rows[0]?.code).not.toBe("Gävleborg");
   });
 });
 
@@ -154,5 +164,13 @@ describe("filter hints", () => {
       expect.arrayContaining(["Län", "Kommun", "Arbetsställestatus"]),
     );
     expect(hints[0]?.defaultStatus?.value).toBe("1");
+  });
+
+  it("recommends live OrgNr (10/12 siffror) for organization_number, not PeOrgNr", () => {
+    const hints = filterHintsFor("company", "organization_number");
+    expect(hints[0]?.recommendedVariables).toEqual(
+      expect.arrayContaining(["OrgNr (10 siffror)", "OrgNr (12 siffror)"]),
+    );
+    expect(hints[0]?.recommendedVariables).not.toContain("PeOrgNr");
   });
 });

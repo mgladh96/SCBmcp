@@ -82,10 +82,10 @@
     "question": "Vad vet SCB om organisationsnummer 556074-7569?",
     "expectedObjectType": "company",
     "expectedCategories": [],
-    "expectedVariables": ["PeOrgNr", "OrgNr"],
+    "expectedVariables": ["OrgNr (12 siffror)", "OrgNr (10 siffror)"],
     "questionClass": "organization_number",
     "answerable": true,
-    "notes": "10→12 siffror, prefix 16, operator ArLikaMed.",
+    "notes": "Live JE-variabler: OrgNr (10 siffror) behåller 10; OrgNr (12 siffror) 10→12 med prefix 16. Inte PeOrgNr. Operator ArLikaMed.",
     "identity": { "input": "556074-7569", "kind": "peOrgNr", "expected": "165560747569" }
   },
   {
@@ -104,10 +104,10 @@
     "question": "Alla AE för företaget med PeOrgNr 165560747569.",
     "expectedObjectType": "workplace",
     "expectedCategories": [],
-    "expectedVariables": ["PeOrgNr"],
+    "expectedVariables": ["OrgNr (12 siffror)"],
     "questionClass": "organization_number",
     "answerable": true,
-    "notes": "AE-sök på PeOrgNr, inte sammanslagen layout."
+    "notes": "AE-sök på företagets org.nr. Live-variabeln är OrgNr (12 siffror), inte PeOrgNr. Inte sammanslagen layout."
   },
   {
     "id": "q12",

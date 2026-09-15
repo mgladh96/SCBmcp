@@ -3,21 +3,27 @@ import type { ScbFilters } from "./schemas.js";
 import type { ObjectType } from "./types.js";
 
 /**
- * SCB PeOrgNr is 12 digits:
- * - legal person: `16` + 10-digit organisationsnummer
- * - natural person (enskild näringsidkare): `19`/`20` + 10-digit personnummer
+ * Live JE koptavariabler (Id_Variabel_JE) name org-number fields exactly:
+ * - `OrgNr (10 siffror)` — keep 10 digits (strip 16/19/20 prefix from 12-digit input)
+ * - `OrgNr (12 siffror)` — 10-digit orgsnummer (month ≥ 20) → prefix `16`
+ *
+ * `PeOrgNr` is an alias for the 12-digit form; live JE returns 400 if sent
+ * ("Variabeln PeOrgNr kan inte hittas.").
+ * CfarNr is an 8-digit SCB workplace id; exact operator `ArLikaMed`.
  *
  * A 10-digit organisationsnummer is distinguished from a personnummer by
- * positions 3–4 (1-based) being ≥ 20. Those 10 digits are prefixed with `16`.
- * A 10-digit personnummer-like value is rejected: century cannot be inferred.
- *
- * OrgNr (10 siffror) keeps the 10-digit form (strip a `16`/`19`/`20` prefix).
- * CfarNr is an 8-digit SCB workplace id; exact operator `ArLikaMed`.
+ * positions 3–4 (1-based) being ≥ 20. A 10-digit personnummer-like value is
+ * rejected: century cannot be inferred.
  */
 export const LEGAL_PERSON_PREFIX = "16";
 export const CFAR_LENGTH = 8;
 export const ORGNR_LENGTH = 10;
 export const PEORGNR_LENGTH = 12;
+
+/** Live JE variable name (Id_Variabel_JE). */
+export const LIVE_JE_ORGNR_10 = "OrgNr (10 siffror)";
+/** Live JE variable name (Id_Variabel_JE). */
+export const LIVE_JE_ORGNR_12 = "OrgNr (12 siffror)";
 
 export type IdentityKind = "peOrgNr" | "orgNr10" | "orgNr12" | "cfarNr";
 
@@ -85,16 +91,16 @@ export function identityKindForVariable(name: string, objectType: ObjectType): I
   if (n.includes("cfar")) {
     return "cfarNr";
   }
+  if (n === fold(LIVE_JE_ORGNR_12) || (n.includes("orgnr") && n.includes("12"))) {
+    return "orgNr12";
+  }
+  if (n === fold(LIVE_JE_ORGNR_10) || (n.includes("orgnr") && n.includes("10"))) {
+    return "orgNr10";
+  }
   if (n.includes("peorgnr")) {
     return "peOrgNr";
   }
   if (n.includes("orgnr")) {
-    if (n.includes("12")) {
-      return "orgNr12";
-    }
-    if (n.includes("10")) {
-      return "orgNr10";
-    }
     return objectType === "workplace" ? "orgNr12" : "orgNr10";
   }
   return undefined;
@@ -181,7 +187,7 @@ export function normalizeIdentityInFilters(filters: ScbFilters, objectType: Obje
     }
     if (result.personnummerLike) {
       personnummerLike = true;
-      warnings.push("PeOrgNr är personnummer-likt; värdet loggas inte.");
+      warnings.push(`Identitetsvärdet för "${item.variable}" är personnummer-likt; värdet loggas inte.`);
     }
     if (result.value !== item.value || result.fromLength !== result.value.length) {
       const change: IdentityChange = {
@@ -207,7 +213,7 @@ export function identityInvalidErrorDetails(message: string): Record<string, unk
     field: "filters.variables.value",
     origin: "identity",
     suggestion:
-      "Använd 10-siffrigt organisationsnummer eller 12-siffrigt PeOrgNr (16+orgnr). CFAR är 8 siffror. Operator ArLikaMed.",
+      `Använd live-variablerna "${LIVE_JE_ORGNR_10}" (behåll 10) eller "${LIVE_JE_ORGNR_12}" (10→12 med prefix ${LEGAL_PERSON_PREFIX}). PeOrgNr är ett alias och saknas live på JE. CFAR/CfarNr är 8 siffror. Operator ArLikaMed.`,
     message,
   };
 }
@@ -215,16 +221,16 @@ export function identityInvalidErrorDetails(message: string): Record<string, unk
 function identityChangeWarning(change: IdentityChange): string {
   if (change.kind === "peOrgNr" || change.kind === "orgNr12") {
     if (change.fromLength === ORGNR_LENGTH && change.toLength === PEORGNR_LENGTH) {
-      return `PeOrgNr normaliserades från 10 till 12 siffror (juridisk person, prefix ${LEGAL_PERSON_PREFIX}).`;
+      return `"${change.variable}" normaliserades från 10 till 12 siffror (juridisk person, prefix ${LEGAL_PERSON_PREFIX}).`;
     }
     if (change.fromLength === PEORGNR_LENGTH && change.toLength === ORGNR_LENGTH) {
-      return "OrgNr normaliserades till 10 siffror (prefix 16/19/20 togs bort).";
+      return `"${change.variable}" normaliserades till 10 siffror (prefix 16/19/20 togs bort).`;
     }
   }
   if (change.kind === "orgNr10" && change.fromLength === PEORGNR_LENGTH) {
-    return "OrgNr normaliserades till 10 siffror.";
+    return `"${change.variable}" normaliserades till 10 siffror.`;
   }
-  return `Identitet för ${change.variable} normaliserades (${change.fromLength}→${change.toLength} siffror).`;
+  return `Identitet för "${change.variable}" normaliserades (${change.fromLength}→${change.toLength} siffror).`;
 }
 
 function normalizePeOrgNrDigits(digits: string, kind: IdentityKind): IdentityResult {
@@ -233,13 +239,18 @@ function normalizePeOrgNrDigits(digits: string, kind: IdentityKind): IdentityRes
       return {
         ok: false,
         kind,
-        reason: "12-siffrigt PeOrgNr ska börja med 16 (juridisk person) eller 19/20 (fysisk person).",
+        reason: `12-siffrigt ${kind === "orgNr12" ? LIVE_JE_ORGNR_12 : "PeOrgNr"} ska börja med 16 (juridisk person) eller 19/20 (fysisk person).`,
         code: "IDENTITY_GARBAGE",
       };
     }
     const core = digits.slice(2);
     if (!luhn10(core)) {
-      return { ok: false, kind, reason: "PeOrgNr har ogiltig kontrollsiffra.", code: "IDENTITY_GARBAGE" };
+      return {
+        ok: false,
+        kind,
+        reason: `${kind === "orgNr12" ? LIVE_JE_ORGNR_12 : "PeOrgNr"} har ogiltig kontrollsiffra.`,
+        code: "IDENTITY_GARBAGE",
+      };
     }
     return {
       ok: true,
@@ -257,7 +268,7 @@ function normalizePeOrgNrDigits(digits: string, kind: IdentityKind): IdentityRes
         ok: false,
         kind,
         reason:
-          "10-siffrigt värde ser ut som personnummer. Ange 12-siffrigt PeOrgNr med sekelsiffra 19 eller 20.",
+          `10-siffrigt värde ser ut som personnummer. Ange 12-siffrigt ${LIVE_JE_ORGNR_12} med sekelsiffra 19 eller 20.`,
         code: "IDENTITY_AMBIGUOUS",
       };
     }
@@ -284,7 +295,7 @@ function normalizePeOrgNrDigits(digits: string, kind: IdentityKind): IdentityRes
   return {
     ok: false,
     kind,
-    reason: `PeOrgNr/org.nr ska vara 10 eller 12 siffror, fick ${digits.length}.`,
+    reason: `${LIVE_JE_ORGNR_12} / org.nr ska vara 10 eller 12 siffror, fick ${digits.length}.`,
     code: "IDENTITY_GARBAGE",
   };
 }

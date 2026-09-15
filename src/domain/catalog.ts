@@ -241,12 +241,24 @@ function levenshtein(a: string, b: string): number {
   return matrix[a.length * cols + b.length] ?? Math.max(a.length, b.length);
 }
 
+/** Live kodtabell uses Varde (code) + Text (label). Older dumps use Kod. */
+const CODE_KEYS = ["Varde", "varde", "Kod", "kod", "code"];
+const LABEL_KEYS = [
+  "Text",
+  "text",
+  "Benämning",
+  "Benamning",
+  "Beskrivning",
+  "label",
+  "Namn",
+  "namn",
+];
+
 export function extractCodeRows(raw: unknown): CodeRow[] {
   return extractMetadataItems(raw)
     .map((item) => {
-      const code = firstString(item, ["Kod", "kod", "code"]) || item.name;
-      const label =
-        firstString(item, ["Text", "text", "Benämning", "Beskrivning", "label", "Namn"]) || code;
+      const code = firstString(item, CODE_KEYS) || item.name;
+      const label = firstString(item, LABEL_KEYS) || code;
       return { code, label };
     })
     .filter((row) => row.code.length > 0);
@@ -255,17 +267,11 @@ export function extractCodeRows(raw: unknown): CodeRow[] {
 function firstString(item: MetadataItem, keys: string[]): string {
   for (const key of keys) {
     const value = item[key];
-    if (typeof value === "string" && value.length > 0 && value !== item.name) {
-      return value;
-    }
-    if (typeof value === "string" && value.length > 0 && key !== "Namn" && key !== "name") {
-      return value;
-    }
-  }
-  for (const key of keys) {
-    const value = item[key];
     if (typeof value === "string" && value.length > 0) {
       return value;
+    }
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return String(value);
     }
   }
   return "";
@@ -404,9 +410,9 @@ export const FILTER_HINTS: FilterHint[] = [
     questionClass: "organization_number",
     objectType: "both",
     recommendedCategories: [],
-    recommendedVariables: ["PeOrgNr", "OrgNr", "CfarNr"],
+    recommendedVariables: ["OrgNr (12 siffror)", "OrgNr (10 siffror)", "CfarNr"],
     notes:
-      "Exakt operator ArLikaMed. 10-siffrigt org.nr → PeOrgNr (prefix 16). CFAR/CfarNr är 8 siffror. Personnummer-lika PeOrgNr loggas inte.",
+      "Exakt operator ArLikaMed. Live JE-namn är OrgNr (10 siffror) och OrgNr (12 siffror) — inte PeOrgNr (SCB 400). 10-siffrigt org.nr på 12-siffriga fältet → prefix 16. CFAR/CfarNr är 8 siffror. Personnummer-lika värden loggas inte.",
   },
 ];
 

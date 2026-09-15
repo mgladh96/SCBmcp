@@ -132,7 +132,36 @@ const METADATA_ARRAY_KEYS = [
   "items",
 ];
 
-const METADATA_NAME_KEYS = ["Kategori", "Variabel", "Namn", "name", "Kod", "kod", "Text", "text"];
+/**
+ * Live privateapi.scb.se (mTLS) uses Id_Kategori_JE / Id_Kategori_AE on category
+ * list rows — there is no Kategori/Namn field. Variables use Id_Variabel_JE /
+ * Id_Variabel_AE (e.g. OrgNr (12 siffror)) — there is no Variabel/Namn field.
+ * Kodtabell rows use Varde (code) + Text (label), not Kod.
+ * Older keys stay for backward compatibility with docs/examples and mocks.
+ */
+const METADATA_IDENTITY_KEYS = [
+  "Id_Kategori_JE",
+  "Id_Kategori_AE",
+  "Id_Kategori",
+  "Id_Variabel_JE",
+  "Id_Variabel_AE",
+  "Id_Variabel",
+  "Kategori",
+  "Variabel",
+];
+
+const METADATA_CODE_NAME_KEYS = ["Varde", "varde", "Kod", "kod"];
+
+const METADATA_NAME_KEYS = [
+  ...METADATA_IDENTITY_KEYS,
+  "Namn",
+  "name",
+  ...METADATA_CODE_NAME_KEYS,
+  "Text",
+  "text",
+];
+
+const IDENTITY_KEY_RE = /^Id_(Kategori|Variabel)(_[A-Za-z0-9]+)?$/;
 
 export type MetadataItem = {
   name: string;
@@ -232,7 +261,12 @@ function isLikelyMetadataRow(value: unknown): boolean {
     return false;
   }
   const record = value as Record<string, unknown>;
-  return METADATA_NAME_KEYS.some((key) => typeof record[key] === "string");
+  if (METADATA_NAME_KEYS.some((key) => nonEmptyString(record[key]) !== undefined)) {
+    return true;
+  }
+  return Object.entries(record).some(
+    ([key, field]) => IDENTITY_KEY_RE.test(key) && nonEmptyString(field) !== undefined,
+  );
 }
 
 function toMetadataItem(row: unknown): MetadataItem {
@@ -241,17 +275,38 @@ function toMetadataItem(row: unknown): MetadataItem {
   }
   if (row && typeof row === "object") {
     const record = row as Record<string, unknown>;
-    let name = "";
-    for (const key of METADATA_NAME_KEYS) {
-      const value = record[key];
-      if (typeof value === "string" && value.length > 0) {
-        name = value;
-        break;
-      }
-    }
-    return { name, ...record };
+    return { ...record, name: metadataNameFromRecord(record) };
   }
   return { name: "" };
+}
+
+function metadataNameFromRecord(record: Record<string, unknown>): string {
+  for (const key of METADATA_NAME_KEYS) {
+    const value = nonEmptyString(record[key]);
+    if (value !== undefined) {
+      return value;
+    }
+  }
+  for (const [key, field] of Object.entries(record)) {
+    if (!IDENTITY_KEY_RE.test(key)) {
+      continue;
+    }
+    const value = nonEmptyString(field);
+    if (value !== undefined) {
+      return value;
+    }
+  }
+  return "";
+}
+
+function nonEmptyString(value: unknown): string | undefined {
+  if (typeof value === "string" && value.length > 0) {
+    return value;
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+  return undefined;
 }
 
 export function parseSearchResponse(payload: unknown): unknown[] {

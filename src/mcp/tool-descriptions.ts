@@ -15,7 +15,7 @@ Använd category-namnet från scb_schema_summary / scb_list_categories (exakt st
 Valfritt query filtrerar på kod/etikett (t.ex. Gävleborg). Standard limit ~50. Full dump bara med includeAll=true eller limit=0 — använd inte för SNI.
 
 Anti-mönster:
-- Skicka inte svenska etiketter ("Gävleborg", "aktiv") som category. Category är t.ex. Län eller Företagsstatus; koden är items[].name/Kod.
+- Skicka inte svenska etiketter ("Gävleborg", "aktiv") som category. Category är t.ex. Län eller Företagsstatus; koden är items[].name (live: Varde, äldre: Kod).
 - Namn som innehåller "Bygg" är inte SNI — sök med scb_lookup_codes.
 - Vid SCB_UNKNOWN_CATEGORY: nearestNames + scb_schema_summary.`;
 
@@ -23,11 +23,14 @@ export const LIST_VARIABLES_DESCRIPTION = `Lista fritextvariabler (inte kodtabel
 
 Svar: { objectType, items: [{ name, ... }], raw }. Använd items[].name som variable i filter.
 
+Live JE-rader har Id_Variabel_JE (ingen Variabel/Namn). Org.nr heter exakt "OrgNr (10 siffror)" och "OrgNr (12 siffror)" — inte PeOrgNr (SCB 400). PeOrgNr/CfarNr känns igen som alias i identitetssockret.
+
 Operatorer är SCB-enum: Innehaller, ArLikaMed, BorjarPa, Mellan, FranOchMed, TillOchMed, Finns, FinnsInte — inte Contains/Equals. Kontrollera ev. värdedomän med includeValueMetadata.
 
 Anti-mönster:
 - Firma vs Företagsnamn (JE) vs Benämning (AE) är olika fält.
-- AnstSME är inte samma sak som kategorin Storleksklass Anställda.`;
+- AnstSME är inte samma sak som kategorin Storleksklass Anställda.
+- Skicka inte PeOrgNr live på JE.`;
 
 export const COUNT_COMPANIES_DESCRIPTION = `Räkna juridiska enheter (JE) som matchar SCB-filter. Använd för att iterera — search räknar redan internt.
 
@@ -43,11 +46,11 @@ export const SEARCH_COMPANIES_DESCRIPTION = `Hämta juridiska enheter (JE). Räk
 
 SCB-kostnad: search hämtar hela resultatmängden från SCB (efter 2000-vakten). fields[] och maxRows krymper bara vad agenten ser — de minskar inte hamta-anropet. Räkna först och smalna filter innan search.
 
-Valfritt fields[] och maxRows (standard 75, högst 2000). Standardfält: PeOrgNr, namn, status, geografi, SNI/bransch, storleksklass, Reklam. Reklam strippas aldrig.
+Valfritt fields[] och maxRows (standard 75, högst 2000). Standardfält: orgnr, namn, status, geografi, SNI/bransch, storleksklass, Reklam. Reklam strippas aldrig.
 
 Filter: categories[] och variables[] med SCB-namn från listverktygen. Operatorer: Innehaller, ArLikaMed, m.fl. (allowlist). branchLevel = SCB Branschniva, bara på bransch/SNI.
 JE-geografi = säte (Säteslän), inte Län. Namn "Bygg" ≠ SNI.
-Org.nr: 10 eller 12 siffror; 10-siffrigt organisationsnummer → PeOrgNr med prefix 16. Operator ArLikaMed.
+Org.nr: live JE-variabler heter OrgNr (10 siffror) och OrgNr (12 siffror) — inte PeOrgNr. 10-siffrigt organisationsnummer på 12-siffriga fältet → prefix 16. 10-siffriga fältet behåller 10. Operator ArLikaMed.
 
 Svarskuvert: { count, fetched, returned, omittedByMaxRows?, results, filters, warnings?, source }.
 count = SCB-population. fetched = rader i hamta-svaret. returned = rader i results. omittedByMaxRows = fetched−returned när maxRows klippte.
@@ -66,7 +69,7 @@ export const SEARCH_WORKPLACES_DESCRIPTION = `Hämta arbetsställen (AE). Räkna
 
 SCB-kostnad: search hämtar hela resultatmängden från SCB (efter 2000-vakten). fields[] och maxRows krymper bara agentvyn. Räkna först och smalna filter innan search.
 
-Valfritt fields[] och maxRows (standard 75, högst 2000). Standardfält: CfarNr, PeOrgNr, namn, status, geografi, SNI, storleksklass, Reklam. Reklam strippas aldrig.
+Valfritt fields[] och maxRows (standard 75, högst 2000). Standardfält: CfarNr, orgnr, namn, status, geografi, SNI, storleksklass, Reklam. Reklam strippas aldrig.
 Gävleborg är AE Län när frågan gäller belägenhet. Namn "Bygg" ≠ SNI. Operatorer är SCB-enum (Innehaller, ArLikaMed, …).
 Storleksklass Anställda ≠ AnstSME. branchLevel = Branschniva, bara på bransch.
 CfarNr är 8 siffror, operator ArLikaMed.
@@ -100,3 +103,29 @@ export const FILTER_HINTS_DESCRIPTION = `Statisk tabell frågeklass → rekommen
 
 questionClass: companies_in_region | workplaces_in_region | industry_and_place | name_contains | employee_size | organization_number.
 Valfri objectType. Namn binds mot cachead katalog när den finns.`;
+
+export const COMPILE_QUERY_DESCRIPTION = `Kompilera StructuredQuery till SCB-filter (dry-run). Ingen företags-/arbetsställe-sökning.
+
+Princip: agenten förstår användaren; SCBmcp förstår SCB. Skicka INTE { text: "..." } eller fritext. Agenten äger objectType (company=JE / workplace=AE) — servern gissar inte.
+
+industry är alltid objekt { query, level? }, aldrig en bar sträng. fields[] är semantiska id:n (name, organizationNumber, municipality, employeeCount) — inte SCB-namn som "OrgNr (10 siffror)".
+
+Svar: { ok, objectType, layout, filters, resolved, coverage, warnings, unresolved }. Kompakt — ingen katalogdump.
+
+coverage[] per villkor: { constraint, requested, applied, relation, exact, message }.
+relation: exact | superset | subset | partial | unrepresentable.
+Anställda 10–15 mot SCB-klass 10–19 → superset, exact=false. Aldrig tyst "exact" vid bandapproximation.
+
+Kan träffa metadata/kodtabell internt (cache). Använd scb_count_then_fetch för räkna+hämta.`;
+
+export const COUNT_THEN_FETCH_DESCRIPTION = `Kompilera StructuredQuery (om needed), räkna, hämta när 1≤count≤2000. Happy path: 1 verktygsanrop (eller compile + denna = 2).
+
+Två inmatningar:
+1) StructuredQuery — objectType (obligatorisk) + industry/geography/employees/status/maxRows/fields. Status default active. Coverage beräknas.
+2) Redan kompilerat { objectType, filters, maxRows?, fields? }. Semantiska slotar ignoreras. Coverage för industry/geo/employees saknas då.
+
+Vid count=0, QUERY_TOO_BROAD eller kompileringsfel: strukturerat fel med nextAction, coverage+resolved, inga stora payloads.
+Vid träff: results med semantiska nycklar (name, organizationNumber, …) enligt resolved.fields, plus Reklam. coverage och resolved följer ALLTID med.
+
+Ingen NL. Ingen server-LLM. Agenten äger objectType.`;
+
