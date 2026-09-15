@@ -192,7 +192,8 @@ Happy path: **högst två** MCP-anrop — valfritt `scb_compile_query`, sedan `s
 }
 ```
 
-- `industry` är **alltid** objekt `{ query, level? }`, aldrig en bar sträng. `level` är SNI-nivå; livekategorin **Bransch** kräver `Branschniva` 1–3 (bokstav→1, 2 siffror→2, 3+→3). Utelämnad `level` ger ändå en giltig POST: kompilatorn sätter nivån och föredrar avdelning/2-siffrig (t.ex. `F`) framför många 5-siffriga substringträffar. Coverage för bransch är då oftast `partial` eller `exact` om aliaset träffar avdelningen.
+- `industry` är **alltid** objekt `{ query, level? }`, aldrig en bar sträng. `level` är SNI-nivå; livekategorin **Bransch** kräver `Branschniva` 1–3 (bokstav→1, 2 siffror→2, 3+→3). Utelämnad `level` ger ändå en giltig POST. Svenska **"bygg" / "byggverksamhet"** mappar via en liten alias-tabell till bygg-SNI **41, 42, 43** (och avdelning **F** om den finns i metadata) — inte substringträffar som Byggplast, fartyg eller handel. Live JE saknar ofta sektion F; då används kategorin **`2-siffrig bransch *`** (samma väg som `{ query: "41", level: 2 }`) utan `Branschniva`. Coverage är `partial` för flera koder, `exact` för en entydig kodträff.
+- `scb_count_then_fetch` skickar kompilerade **variabler** (t.ex. `Namn`, `OrgNr (10 siffror)`) med operator `Finns` i hämtningens POST så att JE returnerar dem. Kategorier som används som filter (Säteskommun, Anställda) behöver inte ligga i `variabler`.
 - `employees` mappar till **Anställda** / **Storleksklass Anställda**, aldrig `Omsättningsklass*`. Etiketter med `tkr`/`mkr`/`kr` ignoreras. Begärt 10–15 mot klass 10–19 är **superset**, `exact: false`.
 - `status` default `active` (verksam, kod från kodtabellen). `any` utelämnar statusfilter.
 - `scb_count_then_fetch` tar antingen StructuredQuery **eller** redan kompilerat `{ objectType, filters, maxRows?, fields? }`. Om `filters` finns används de som de är (semantiska slotar ignoreras; coverage för industry/geo/employees saknas då).

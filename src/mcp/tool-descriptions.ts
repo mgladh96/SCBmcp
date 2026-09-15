@@ -108,7 +108,7 @@ export const COMPILE_QUERY_DESCRIPTION = `Kompilera StructuredQuery till SCB-fil
 
 Princip: agenten förstår användaren; SCBmcp förstår SCB. Skicka INTE { text: "..." } eller fritext. Agenten äger objectType (company=JE / workplace=AE) — servern gissar inte.
 
-industry är alltid objekt { query, level? }, aldrig en bar sträng. level 1–3 = SCB Branschniva på Bransch (obligatorisk live; utelämnad infereras). fields[] är semantiska id:n (name, organizationNumber, municipality, employeeCount) — inte SCB-namn som "OrgNr (10 siffror)".
+industry är alltid objekt { query, level? }, aldrig en bar sträng. "bygg"/"byggverksamhet" → SNI 41/42/43 (eller avdelning F om den finns), inte Byggplast/fartyg/handel. Live 2-siffrig bransch * används när sektion saknas. fields[] är semantiska id:n (name, organizationNumber, municipality, employeeCount) — inte SCB-namn som "OrgNr (10 siffror)".
 
 Svar: { ok, objectType, layout, filters, resolved, coverage, warnings, unresolved }. Kompakt — ingen katalogdump.
 
@@ -125,7 +125,7 @@ Två inmatningar:
 2) Redan kompilerat { objectType, filters, maxRows?, fields? }. Semantiska slotar ignoreras. Coverage för industry/geo/employees saknas då.
 
 Vid count=0, QUERY_TOO_BROAD eller kompileringsfel: strukturerat fel med nextAction, coverage+resolved, inga stora payloads.
-Vid träff: results med semantiska nycklar (name, organizationNumber, …) enligt resolved.fields, plus Reklam. coverage och resolved följer ALLTID med.
+Vid träff: results med semantiska nycklar (name, organizationNumber, …) enligt resolved.fields, plus Reklam. Hämtningen skickar SCB-variabler (Namn/OrgNr, operator Finns) så att JE returnerar dem; kategorifilter räcker för kommun/anställda. coverage och resolved följer ALLTID med.
 
 Ingen NL. Ingen server-LLM. Agenten äger objectType.`;
 

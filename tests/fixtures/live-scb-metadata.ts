@@ -42,12 +42,33 @@ export const LIVE_AE_VARIABLE_LIST = {
 
 export const LIVE_JE_VARIABLE_LIST = {
   Variabler: [
+    { Id_Variabel_JE: "Namn", TillaggsGrupp: "BasUtbud" },
     { Id_Variabel_JE: "Företagsnamn", TillaggsGrupp: "BasUtbud" },
     { Id_Variabel_JE: "Firma", TillaggsGrupp: "BasUtbud" },
     { Id_Variabel_JE: "OrgNr (10 siffror)", TillaggsGrupp: "BasUtbud" },
     { Id_Variabel_JE: "OrgNr (12 siffror)", TillaggsGrupp: "BasUtbud" },
   ],
 };
+
+/** Live JE category used by `{ query: "41", level: 2 }` (2026-09-15). */
+export const LIVE_TWO_DIGIT_BRANSCH_CATEGORY = "2-siffrig bransch 1";
+
+/**
+ * Live-shaped 2-digit bransch rows: construction 41–43 plus substring noise
+ * that contains "bygg" (plast, fartyg, handel, …). No section F.
+ */
+export const LIVE_NOISY_TWO_DIGIT_BRANSCH = [
+  { code: "22", label: "Tillverkning av byggplast" },
+  { code: "30", label: "Byggande av fartyg och båtar" },
+  { code: "41", label: "Byggande av hus" },
+  { code: "42", label: "Anläggningsarbeten" },
+  { code: "43", label: "Specialiserad bygg- och anläggningsverksamhet" },
+  { code: "16", label: "Tillverkning av varor av trä för bygg" },
+  { code: "23", label: "Tillverkning av andra icke-metalliska mineraliska produkter för bygg" },
+  { code: "25", label: "Tillverkning av metallvaror för bygg" },
+  { code: "28", label: "Tillverkning av maskiner för bygg" },
+  { code: "46", label: "Partihandel med byggvaror" },
+];
 
 /** Live kodtabell: Varde is the code, Text is the label. */
 export const LIVE_LAN_KODTABELL = {
