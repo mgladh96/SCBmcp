@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { fold } from "../src/domain/catalog.js";
 import {
   compileStructuredQuery,
@@ -12,7 +12,7 @@ import {
   pickSizeCategory,
   projectToSemanticFields,
   rangeRelation,
-  selectIndustryCodes,
+  resolveIndustryCluster,
   selectVariablesForFetch,
   structuredQuerySchema,
 } from "../src/scb/compile/index.js";
@@ -240,7 +240,7 @@ describe("compileStructuredQuery golden path (live-shaped metadata)", () => {
     expect(emp?.exact).toBe(false);
   });
 
-  it("marks unknown industry as unresolved", async () => {
+  it("marks unknown industry as unresolved with empty-or-weak candidates", async () => {
     const compiled = await compileStructuredQuery(
       structuredQuerySchema.parse({
         objectType: "company",
@@ -250,7 +250,9 @@ describe("compileStructuredQuery golden path (live-shaped metadata)", () => {
       liveClient(),
     );
     expect(compiled.ok).toBe(false);
-    expect(compiled.unresolved.some((item) => item.constraint === "industry")).toBe(true);
+    const unresolved = compiled.unresolved.find((item) => item.constraint === "industry");
+    expect(unresolved).toBeDefined();
+    expect(unresolved?.candidates ?? []).toEqual([]);
   });
 
   it("maps employees 10–15 to Anställda (not Omsättningsklass) with superset coverage", async () => {
@@ -342,54 +344,80 @@ describe("compileStructuredQuery golden path (live-shaped metadata)", () => {
   });
 });
 
-describe("metadata-driven industry discovery (compile uses shared search)", () => {
+describe("metadata-driven industry discovery (compile wraps shared search)", () => {
   it("expands bygg to search terms only, never SNI codes", () => {
     const aliases = expandIndustryAliases("bygg");
     expect(aliases).toEqual(expect.arrayContaining(["bygg", "Byggverksamhet"]));
     expect(aliases.some((item) => /^(F|41|42|43)$/u.test(item))).toBe(false);
   });
 
-  it("selectIndustryCodes follows scores, not hardcoded construction lists", () => {
-    const selected = selectIndustryCodes(
+  it("resolveIndustryCluster takes a clear exact-label top hit, not a code list", () => {
+    const selected = resolveIndustryCluster(
       [
-        { code: "22", label: "Tillverkning av byggplast", score: 12 },
-        { code: "41", label: "Byggande av hus", score: 90 },
-        { code: "42", label: "Anläggningsarbeten", score: 8 },
-        { code: "43", label: "Specialiserad bygg- och anläggningsverksamhet", score: 80 },
+        { objectType: "company", category: "Bransch", code: "F", label: "Byggverksamhet", score: 1200, level: 1 },
+        { objectType: "company", category: "Bransch", code: "41", label: "Byggande av hus", score: 260, level: 2, parentCode: "F" },
+        { objectType: "company", category: "Bransch", code: "30", label: "Byggande av fartyg och båtar", score: 240, level: 2, parentCode: "C" },
       ],
-      undefined,
+      "bygg",
     );
-    const labels = selected.codes.map((item) => item.label).join(" ");
-    expect(labels).toMatch(/bygg/i);
-    expect(selected.codes.map((item) => item.code)).toEqual(expect.arrayContaining(["41"]));
-    expect(selected.branchLevel).toBe(2);
+    expect(selected.status).toBe("resolved");
+    if (selected.status !== "resolved") {
+      return;
+    }
+    expect(selected.codes.map((item) => item.code)).toEqual(["F"]);
+    expect(selected.exact).toBe(true);
+    expect(selected.reason).toBe("exact_label");
   });
 
-  it("compiles live-shaped bygg from fixture labels, not a 41/42/43 facit", async () => {
-    const client = createTestClient(catalogFetch(liveConstructionCatalogSpec()));
-    const compiled = await compileStructuredQuery(
+  it("resolveIndustryCluster leaves 41-vs-30 boat noise unresolved with candidates", () => {
+    const selected = resolveIndustryCluster(
+      [
+        { objectType: "company", category: "Bransch", code: "41", label: "Byggande av hus", score: 260, level: 2, parentCode: "F" },
+        { objectType: "company", category: "Bransch", code: "30", label: "Byggande av fartyg och båtar", score: 238, level: 2, parentCode: "C" },
+      ],
+      "bygg",
+    );
+    expect(selected.status).toBe("unresolved");
+    if (selected.status !== "unresolved") {
+      return;
+    }
+    expect(selected.candidates.map((item) => item.code)).toEqual(["41", "30"]);
+  });
+
+  it("industry resolution calls discoverCodes/lookupCodes, not a parallel path", async () => {
+    const client = liveClient();
+    const spy = vi.spyOn(client, "lookupCodes");
+    await compileStructuredQuery(
       structuredQuerySchema.parse({ objectType: "company", industry: { query: "bygg" }, status: "any" }),
       client,
     );
+    expect(spy.mock.calls.some((call) => call[0] === "company" && call[1] === "bygg" && call[2]?.kind === "industry")).toBe(
+      true,
+    );
+    spy.mockRestore();
+  });
+
+  it("compiles live-shaped bygg from Byggverksamhet discovery hit", async () => {
+    const compiled = await compileStructuredQuery(
+      structuredQuerySchema.parse({ objectType: "company", industry: { query: "bygg" }, status: "any" }),
+      liveClient(),
+    );
     expect(compiled.ok).toBe(true);
-    const filter = compiled.filters.categories.find((item) => fold(item.category).includes("bransch"));
-    expect(filter?.values.length).toBeGreaterThan(0);
-    const labels = (compiled.resolved.industry?.codes ?? []).map((item) => item.label).join(" ");
-    expect(labels).toMatch(/bygg/i);
+    expect(compiled.resolved.industry?.codes.map((item) => item.code)).toEqual(["F"]);
     const industry = compiled.coverage.find((item) => item.constraint === "industry");
-    expect(industry?.relation === "partial" || industry?.relation === "exact").toBe(true);
+    expect(industry?.exact).toBe(true);
+    expect(industry?.relation).toBe("exact");
   });
 
   it("Byggverksamhet and level 1 compile from metadata search", async () => {
-    const client = createTestClient(catalogFetch(liveConstructionCatalogSpec()));
+    const client = liveClient();
     for (const industry of [{ query: "Byggverksamhet" }, { query: "bygg", level: 1 }] as const) {
       const compiled = await compileStructuredQuery(
         structuredQuerySchema.parse({ objectType: "company", industry, status: "any" }),
         client,
       );
       expect(compiled.ok).toBe(true);
-      const labels = (compiled.resolved.industry?.codes ?? []).map((item) => item.label).join(" ");
-      expect(labels.length).toBeGreaterThan(0);
+      expect(compiled.resolved.industry?.codes.some((item) => item.code === "F" || /bygg/i.test(item.label))).toBe(true);
     }
   });
 
@@ -407,6 +435,19 @@ describe("metadata-driven industry discovery (compile uses shared search)", () =
     expect(filter?.category).toBe(LIVE_TWO_DIGIT_BRANSCH_CATEGORY);
     expect(filter?.values).toEqual(["41"]);
     expect(compiled.coverage.find((item) => item.constraint === "industry")?.relation).toBe("exact");
+  });
+
+  it("noisy construction bygg without section F is unresolved with candidates", async () => {
+    const client = createTestClient(catalogFetch(liveConstructionCatalogSpec()));
+    const compiled = await compileStructuredQuery(
+      structuredQuerySchema.parse({ objectType: "company", industry: { query: "bygg" }, status: "any" }),
+      client,
+    );
+    expect(compiled.ok).toBe(false);
+    const unresolved = compiled.unresolved.find((item) => item.constraint === "industry");
+    expect(unresolved?.candidates?.some((item) => item.code === "41")).toBe(true);
+    expect(unresolved?.candidates?.some((item) => item.code === "30")).toBe(true);
+    expect(compiled.filters.categories.some((item) => fold(item.category).includes("bransch"))).toBe(false);
   });
 
   it("prefers 2-siffrig category when level is 2", () => {

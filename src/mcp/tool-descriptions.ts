@@ -111,9 +111,9 @@ export const COMPILE_QUERY_DESCRIPTION = `Kompilera StructuredQuery till SCB-fil
 
 Princip: agenten förstår användaren; SCBmcp förstår SCB. Skicka INTE { text: "..." } eller fritext. Agenten äger objectType (company=JE / workplace=AE) — servern gissar inte.
 
-industry är alltid objekt { query, level? }, aldrig en bar sträng. Kompilatorn slår upp koder via samma discovery-sökning som scb_lookup_codes (metadata + ranking). Inga query→SNI-kod-mappningar. fields[] är semantiska id:n (name, organizationNumber, municipality, employeeCount) — inte SCB-namn som "OrgNr (10 siffror)".
+industry är alltid objekt { query, level? }, aldrig en bar sträng. Kompilatorn är en convenience-wrapper: samma discoverCodes-motor som scb_lookup_codes. Tydlig toppträff/sammanhängande SNI-familj → filter. Tvetydiga discovery-träffar → unresolved + candidates (inte ett påhittat filter). Inga query→SNI-kod-mappningar. fields[] är semantiska id:n (name, organizationNumber, municipality, employeeCount) — inte SCB-namn som "OrgNr (10 siffror)".
 
-Svar: { ok, objectType, layout, filters, resolved, coverage, warnings, unresolved }. Kompakt — ingen katalogdump.
+Svar: { ok, objectType, layout, filters, resolved, coverage, warnings, unresolved }. unresolved[].candidates är rankade discovery-träffar. Kompakt — ingen katalogdump.
 
 coverage[] per villkor: { constraint, requested, applied, relation, exact, message }.
 relation: exact | superset | subset | partial | unrepresentable.

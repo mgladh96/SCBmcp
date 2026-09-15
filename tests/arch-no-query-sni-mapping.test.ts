@@ -66,4 +66,15 @@ describe("arch: no query→SNI-code mappings", () => {
       }
     }
   });
+
+  it("lookup_codes and compile industry share discoverCodes", () => {
+    const tools = readFileSync(join(SRC, "mcp/tools.ts"), "utf8");
+    const compile = readFileSync(join(SRC, "scb/compile/compile.ts"), "utf8");
+    const industry = readFileSync(join(SRC, "scb/compile/industry.ts"), "utf8");
+    expect(tools).toMatch(/discoverCodes/);
+    expect(industry).toMatch(/discoverCodes/);
+    expect(compile).not.toMatch(/selectIndustryCodes/);
+    expect(industry).not.toMatch(/extractCodeRows/);
+    expect(industry).not.toMatch(/["']41["']\s*,\s*["']42["']\s*,\s*["']43["']/u);
+  });
 });

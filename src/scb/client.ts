@@ -3,7 +3,7 @@ import { createLogger, type LogLevel } from "../log.js";
 import { apiIdHeaders, createScbDispatcher, type ScbAuthConfig, validateCertConfig } from "./auth.js";
 import { classifyCategoryKind, type CategoryKind } from "../domain/catalog.js";
 import { TtlCache } from "./cache.js";
-import { lookupCategoryGroups, searchIndex, type CodeLookupResult } from "./code-lookup.js";
+import { lookupCategoryGroups, searchCodes, type CodeLookupResult } from "./code-lookup.js";
 import { buildDiscoveryIndex, type DiscoveryIndex } from "./discovery.js";
 import { countPath, endpointsFor, searchPath } from "./endpoints.js";
 import { identityInvalidErrorDetails, normalizeIdentityInFilters } from "./identity.js";
@@ -221,7 +221,7 @@ export class ScbClient {
       return this.lookupCodesIncremental(objectType, query, options);
     }
     const index = await this.getDiscoveryIndex(objectType, options, kind, options.category);
-    return searchIndex(index, query, {
+    return searchCodes(index, query, {
       kind: options.kind ?? kind,
       category: options.category,
       parentCode: options.parentCode,
@@ -251,7 +251,7 @@ export class ScbClient {
           }
         }
       }
-      last = searchIndex(buildDiscoveryIndex(objectType, tables), query, { limit: options.limit });
+      last = searchCodes(buildDiscoveryIndex(objectType, tables), query, { limit: options.limit });
       if (last.matches.length > 0) {
         return last;
       }

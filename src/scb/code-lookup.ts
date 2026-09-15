@@ -4,7 +4,7 @@ import {
   LOOKUP_KINDS,
   type CategoryKind,
 } from "../domain/catalog.js";
-import { buildDiscoveryIndex, searchDiscoveryIndex, type DiscoveryHit } from "./discovery.js";
+import { buildDiscoveryIndex, searchDiscoveryIndex, type DiscoveryHit, type DiscoveryIndex } from "./discovery.js";
 import { extractMetadataItems } from "./payload.js";
 import type { ObjectType } from "./types.js";
 
@@ -52,6 +52,28 @@ export function lookupCategoryGroups(categoriesRaw: unknown, specified?: string)
   );
 }
 
+export type CodeLookupSource = {
+  lookupCodes: (
+    objectType: ObjectType,
+    query: string,
+    options?: CodeLookupSearchOptions & { bypassCache?: boolean },
+  ) => Promise<CodeLookupResult>;
+};
+
+/**
+ * Shared discovery entrypoint used by `scb_lookup_codes` and compile.
+ * Both paths must call this (or `source.lookupCodes`, which is the same motor)
+ * so industry resolution cannot drift onto a parallel index.
+ */
+export async function discoverCodes(
+  source: CodeLookupSource,
+  objectType: ObjectType,
+  query: string,
+  options: CodeLookupSearchOptions & { bypassCache?: boolean } = {},
+): Promise<CodeLookupResult> {
+  return source.lookupCodes(objectType, query, options);
+}
+
 export function searchCodeTables(
   objectType: ObjectType,
   query: string,
@@ -60,11 +82,12 @@ export function searchCodeTables(
   options: CodeLookupSearchOptions = {},
 ): CodeLookupResult {
   const index = buildDiscoveryIndex(objectType, tables);
-  return searchIndex(index, query, { ...options, limit });
+  return searchCodes(index, query, { ...options, limit });
 }
 
-export function searchIndex(
-  index: ReturnType<typeof buildDiscoveryIndex>,
+/** Ranked search over a discovery index. `scb_lookup_codes` and compile share this. */
+export function searchCodes(
+  index: DiscoveryIndex,
   query: string,
   options: CodeLookupSearchOptions = {},
 ): CodeLookupResult {
@@ -84,6 +107,9 @@ export function searchIndex(
     returned: matches.length,
   };
 }
+
+/** @alias searchCodes */
+export const searchIndex = searchCodes;
 
 function hitToMatch(hit: DiscoveryHit): CodeLookupMatch {
   const match: CodeLookupMatch = {

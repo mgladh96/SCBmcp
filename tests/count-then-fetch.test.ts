@@ -3,7 +3,7 @@ import { createLogger } from "../src/log.js";
 import { createToolHandlers } from "../src/mcp/tools.js";
 import { fold } from "../src/domain/catalog.js";
 import { MAX_RESULTS } from "../src/scb/types.js";
-import { catalogAndSearchFetch, catalogFetch, createTestClient, jsonResponse, liveConstructionCatalogSpec } from "./helpers.js";
+import { catalogAndSearchFetch, catalogFetch, createTestClient, jsonResponse } from "./helpers.js";
 import { LIVE_AE_SEARCH_ROW, LIVE_JE_SEARCH_ROW } from "./fixtures/live-scb-metadata.js";
 
 const silent = createLogger("error");
@@ -212,11 +212,9 @@ describe("scb_count_then_fetch", () => {
     expect(payload.results[0]?.Telefon).toBeUndefined();
   });
 
-  it("golden bygg compiles from metadata labels and projects Företagsnamn/OrgNr", async () => {
+  it("golden bygg compiles from discovery (section F) and projects Företagsnamn/OrgNr", async () => {
     const handlers = createToolHandlers(
-      createTestClient(
-        catalogAndSearchFetch(liveConstructionCatalogSpec(), { count: 14, results: [LIVE_JE_SEARCH_ROW] }),
-      ),
+      createTestClient(catalogAndSearchFetch({ shape: "live" }, { count: 14, results: [LIVE_JE_SEARCH_ROW] })),
       silent,
     );
     const result = await handlers.scb_count_then_fetch(GOLDEN_QUERY);
