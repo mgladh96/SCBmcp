@@ -52,8 +52,23 @@ export type MockCatalogSpec = {
 
 export function catalogFetch(spec: MockCatalogSpec): FetchLike {
   const categories = spec.categories ?? {
-    company: ["Företagsstatus", "Registreringsstatus", "Säteslän", "Säteskommun", "Bransch", "Storleksklass Anställda"],
-    workplace: ["Arbetsställestatus", "Län", "Kommun", "Bransch", "Storleksklass Anställda"],
+    company: [
+      "Företagsstatus",
+      "Registreringsstatus",
+      "Säteslän",
+      "Säteskommun",
+      "SätesARegion",
+      "Bransch",
+      "Storleksklass Anställda",
+    ],
+    workplace: [
+      "Arbetsställestatus",
+      "Län",
+      "Kommun",
+      "ARegion",
+      "Bransch",
+      "Storleksklass Anställda",
+    ],
   };
   const live = spec.shape === "live";
   const variables = spec.variables ?? {
@@ -72,13 +87,27 @@ export function catalogFetch(spec: MockCatalogSpec): FetchLike {
     ],
     Registreringsstatus: [{ code: "1", label: "skatteregistrerad" }],
     Arbetsställestatus: [{ code: "1", label: "verksam" }],
-    Säteslän: [{ code: "21", label: "Gävleborgs län" }, { code: "01", label: "Stockholms län" }],
-    Län: [{ code: "21", label: "Gävleborgs län" }, { code: "01", label: "Stockholms län" }],
-    Säteskommun: [{ code: "2180", label: "Gävle" }],
-    Kommun: [{ code: "2180", label: "Gävle" }],
+    Säteslän: [
+      { code: "21", label: "Gävleborgs län" },
+      { code: "01", label: "Stockholms län" },
+      { code: "23", label: "Jämtlands län" },
+    ],
+    Län: [
+      { code: "21", label: "Gävleborgs län" },
+      { code: "01", label: "Stockholms län" },
+      { code: "23", label: "Jämtlands län" },
+    ],
+    Säteskommun: [{ code: "2180", label: "Gävle" }, { code: "2380", label: "Östersund" }],
+    Kommun: [{ code: "2180", label: "Gävle" }, { code: "2380", label: "Östersund" }],
+    SätesARegion: [{ code: "SE322", label: "Jämtlands län" }],
+    ARegion: [{ code: "SE322", label: "Jämtlands län" }],
     "Storleksklass Anställda": [
+      { code: "0", label: "0 anställda" },
+      { code: "1", label: "1-4 anställda" },
+      { code: "2", label: "5-9 anställda" },
       { code: "4", label: "10-19 anställda" },
       { code: "5", label: "20-49 anställda" },
+      { code: "6", label: "50-99 anställda" },
     ],
     Bransch: [
       { code: "F", label: "Byggverksamhet" },
@@ -117,6 +146,23 @@ export function catalogFetch(spec: MockCatalogSpec): FetchLike {
       );
     }
     return jsonResponse(200, []);
+  };
+}
+
+export function catalogAndSearchFetch(
+  spec: MockCatalogSpec,
+  options: { count: number; results: unknown[] },
+): FetchLike {
+  const catalog = catalogFetch(spec);
+  return async (url, init) => {
+    const path = new URL(url).pathname;
+    if (path.includes("rakna")) {
+      return jsonResponse(200, options.count);
+    }
+    if (path.includes("hamta")) {
+      return jsonResponse(200, options.results);
+    }
+    return catalog(url, init);
   };
 }
 

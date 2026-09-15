@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { compileQueryInputSchema, countThenFetchInputSchema } from "../scb/compile/schema.js";
 import {
   countCompaniesInputSchema,
   countWorkplacesInputSchema,
@@ -21,6 +22,8 @@ import {
   SERVER_INSTRUCTIONS,
 } from "./instructions.js";
 import {
+  COMPILE_QUERY_DESCRIPTION,
+  COUNT_THEN_FETCH_DESCRIPTION,
   COUNT_COMPANIES_DESCRIPTION,
   COUNT_WORKPLACES_DESCRIPTION,
   EXPLAIN_QUERY_DESCRIPTION,
@@ -160,6 +163,26 @@ export function createMcpServer(handlers: ToolHandlers): McpServer {
       inputSchema: filterHintsInputSchema.shape,
     },
     async (args) => handlers.scb_filter_hints(args),
+  );
+
+  server.registerTool(
+    "scb_compile_query",
+    {
+      title: "Kompilera StructuredQuery till SCB-filter",
+      description: COMPILE_QUERY_DESCRIPTION,
+      inputSchema: compileQueryInputSchema.shape,
+    },
+    async (args) => handlers.scb_compile_query(args),
+  );
+
+  server.registerTool(
+    "scb_count_then_fetch",
+    {
+      title: "Kompilera, räkna och hämta",
+      description: COUNT_THEN_FETCH_DESCRIPTION,
+      inputSchema: countThenFetchInputSchema.shape,
+    },
+    async (args) => handlers.scb_count_then_fetch(args),
   );
 
   server.registerResource(

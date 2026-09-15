@@ -9,14 +9,15 @@ Den är bara ett dataåtkomstlager för det API:et. Den söker inte i andra käl
 En agent kan:
 
 1. Hämta en kompakt schemasammanfattning för JE eller AE (`scb_schema_summary`)
-2. Söka i cacheade kodtabeller (`scb_lookup_codes`) — t.ex. Gävleborg → Län/`21`
-3. Dry-run:a ett filter (`scb_explain_query`) och se serialiserad SCB POST **utan** HTTP mot SCB
-4. Inspektera kategorier och variabler som det konfigurerade SCB-kontot får använda
-5. Hämta kodtabeller för en kategori (sökbar, trunkerad; full dump bara vid explicit begäran)
-6. Räkna företag (JE, juridisk enhet)
-7. Hämta företag när antalet träffar är ≤ 2 000 (MCP projicerar fält och `maxRows`, standard 75)
-8. Räkna arbetsställen (AE, arbetsställe)
-9. Hämta arbetsställen
+2. Kompilera StructuredQuery till SCB-filter (`scb_compile_query`) eller räkna+hämta (`scb_count_then_fetch`)
+3. Söka i cacheade kodtabeller (`scb_lookup_codes`) — t.ex. Gävleborg → Län/`21`
+4. Dry-run:a ett rått filter (`scb_explain_query`) och se serialiserad SCB POST **utan** HTTP mot SCB
+5. Inspektera kategorier och variabler som det konfigurerade SCB-kontot får använda
+6. Hämta kodtabeller för en kategori (sökbar, trunkerad; full dump bara vid explicit begäran)
+7. Räkna företag (JE, juridisk enhet)
+8. Hämta företag när antalet träffar är ≤ 2 000 (MCP projicerar fält och `maxRows`, standard 75)
+9. Räkna arbetsställen (AE, arbetsställe)
+10. Hämta arbetsställen
 
 JE och AE anges alltid explicit. De döljs inte bakom generiska ”provider”-typer.
 
@@ -164,8 +165,51 @@ SCB-klientcertifikatet autentiserar den här processen **mot SCB**. En separat d
 | `scb_count_workplaces` | Räkna AE-träffar |
 | `scb_search_workplaces` | Hämta AE-träffar (samma count-regler och projektion som JE) |
 | `scb_explain_query` | Dry-run: layout, endpoints, serialiserad POST, varningar. **Noll** SCB-anrop. |
+| `scb_compile_query` | StructuredQuery → SCB-filter + coverage (dry-run). Ingen JE/AE-sökning. |
+| `scb_count_then_fetch` | Kompilera (om needed), räkna, hämta. Semantiska fält + coverage i svaret. |
 
-MCP-prompts (ingen extra SCB-trafik): `scb_explore_schema`, `scb_count_then_fetch`, `scb_handle_too_broad`. MCP-resurs: `scb://operators`. Server-`instructions` upprepar arbetsflödet vid initialize.
+MCP-prompts (ingen extra SCB-trafik): `scb_explore_schema`, `scb_count_then_fetch` (manuellt filterflöde; verktyget med samma namn är happy path), `scb_handle_too_broad`. MCP-resurs: `scb://operators`. Server-`instructions` upprepar arbetsflödet vid initialize.
+
+### Princip: agenten = användaren, SCBmcp = SCB
+
+LLM-agenten förstår användaren. **SCBmcp förstår SCB.** Agenten mappar naturligt språk till `StructuredQuery`. Servern kompilerar det till riktiga SCB-kategorier, koder och serialisering från metadata (plus en liten versionsmärkt synonymtabell). Servern tar **inte** emot `{ text: "..." }` för frågeförståelse och gissar **inte** `objectType`.
+
+`objectType` är obligatorisk: `company` = JE, `workplace` = AE. Semantiska `fields` är id:n som `name`, `organizationNumber`, `municipality`, `employeeCount` — inte SCB-namn som `"OrgNr (10 siffror)"` eller `"SätesKommun"`. Mappingen ligger i `resolved.fields`.
+
+Happy path: **högst två** MCP-anrop — valfritt `scb_compile_query`, sedan `scb_count_then_fetch`. Metadatauppslag sker internt.
+
+### StructuredQuery
+
+```json
+{
+  "objectType": "company",
+  "industry": { "query": "bygg", "level": 1 },
+  "geography": { "type": "county", "value": "Jämtland" },
+  "employees": { "min": 10, "max": 15 },
+  "status": "active",
+  "maxRows": 50,
+  "fields": ["name", "organizationNumber", "municipality", "employeeCount"]
+}
+```
+
+- `industry` är **alltid** objekt `{ query, level? }`, aldrig en bar sträng.
+- `status` default `active` (verksam, kod från kodtabellen). `any` utelämnar statusfilter.
+- `scb_count_then_fetch` tar antingen StructuredQuery **eller** redan kompilerat `{ objectType, filters, maxRows?, fields? }`. Om `filters` finns används de som de är (semantiska slotar ignoreras; coverage för industry/geo/employees saknas då).
+
+### Coverage
+
+Varje approximerat villkor:
+
+```json
+{ "constraint": "employees", "requested": { "min": 10, "max": 15 }, "applied": {}, "relation": "superset", "exact": false, "message": "…" }
+```
+
+`relation`: `exact` | `superset` | `subset` | `partial` | `unrepresentable`.
+
+SCB har storleksklasser, inte exakt headcount. Begärt 10–15 mot klass 10–19 är **superset**, `exact: false`, med tydligt meddelande — aldrig tyst exact. Coverage finns på både `scb_compile_query` och `scb_count_then_fetch` (även vid `QUERY_TOO_BROAD` / `SCB_NO_MATCHES`).
+
+JE-geografi: county → Säteslän (live `Id_Kategori_JE`, inte AE `Län`). AE: county → `Län`. Benchmark: `pnpm golden-path` (mockad live-formad metadata).
+
 
 Filterkontrakt (nära SCB, inte ett DSL för naturligt språk):
 
@@ -286,9 +330,11 @@ Bekräfta så här:
 
 ## Exempel på agentflöde
 
-Användare: ”Hitta aktiva byggföretag i Gävleborg med 10–49 anställda.”
+Användare: ”Hitta aktiva byggföretag i Jämtland med 10–15 anställda.”
 
-**Agenten** (inte den här servern) bör:
+**Happy path (≤2 verktyg):** agenten sätter `objectType: "company"` (säte) och anropar `scb_count_then_fetch` med StructuredQuery (`industry.query: "bygg"`, `geography: { type: "county", value: "Jämtland" }`, `employees: { min: 10, max: 15 }`). Valfritt `scb_compile_query` först för att läsa coverage (anställda blir SCB-klass 10–19, `superset`). Inte `schema_summary` + `lookup_codes` i det här flödet.
+
+**Manuellt filterflöde** (när du behöver råa SCB-namn):
 
 1. `scb_schema_summary` för `objectType: "workplace"` (belägenhet) eller `"company"` (säte) — inte `includeCodeTables: true`
 2. `scb_lookup_codes` med `query: "Gävleborg"`, `"bygg"`, `"10-49"`, `"verksam"`
@@ -298,7 +344,7 @@ Användare: ”Hitta aktiva byggföretag i Gävleborg med 10–49 anställda.”
 6. `scb_search_*` med samma filter. Search räknar internt och **återanvänder** en nylig count (ca 5 s). SCB hämtar hela mängden; `maxRows` (standard 75) och `fields[]` krymper bara agentvyn. `Reklam` följer med.
 7. Resonera utifrån JSON:en som SCB returnerar
 
-Gävleborg är ett **län** på arbetsställe i SCB:s variabelbeskrivning; säteslän är motsvarigheten på företagsnivå. Agenten måste hämta det från SCB-metadata, inte från den här README:n.
+Gävleborg är ett **län** på arbetsställe i SCB:s variabelbeskrivning; säteslän är motsvarigheten på företagsnivå. Agenten måste hämta det från SCB-metadata, inte från den här README:n. `scb_compile_query` gör den uppslagningen när du skickar StructuredQuery.
 
 ## SCB-gränser
 
@@ -342,6 +388,7 @@ Kategorier, variabler och kodtabeller cacheas i processen i flera timmar (SCB up
 pnpm typecheck
 pnpm lint
 pnpm test
+pnpm golden-path
 ```
 
 ### Offline eval-svit
@@ -374,6 +421,7 @@ Maskinläsbar JSON. `code`-strängarna är oförändrade. Dessutom: `nextAction`
 - `SCB_UNKNOWN_VARIABLE` — `retry_modified`, `nearestNames[]` när katalogen är cachead
 - `QUERY_TOO_BROAD` — `retry_modified`, smalna filter, paginera inte. `candidateNarrowingDimensions` använder katalognamn när de finns
 - `SCB_RESPONSE_VALIDATION_ERROR` — `abort_unanswerable`
+- `SCB_NO_MATCHES` — `retry_modified` från `scb_count_then_fetch` när count=0 (coverage+resolved i `details`, ingen hamta)
 
 ## Live-verifiering mot SCB
 

@@ -15,6 +15,7 @@ export type ScbErrorCode =
   | "SCB_UNKNOWN_CATEGORY"
   | "SCB_UNKNOWN_VARIABLE"
   | "QUERY_TOO_BROAD"
+  | "SCB_NO_MATCHES"
   | "SCB_RESPONSE_VALIDATION_ERROR";
 
 export type HttpErrorContext = {
@@ -277,6 +278,7 @@ function defaultNextAction(code: ScbErrorCode): ScbNextAction {
     case "SCB_UNKNOWN_CATEGORY":
     case "SCB_UNKNOWN_VARIABLE":
     case "QUERY_TOO_BROAD":
+    case "SCB_NO_MATCHES":
       return "retry_modified";
     case "SCB_AUTH_ERROR":
     case "SCB_RESPONSE_VALIDATION_ERROR":
@@ -298,6 +300,8 @@ function defaultNextTools(code: ScbErrorCode, details: Record<string, unknown>):
       return ["scb_schema_summary", "scb_list_categories", "scb_list_variables"];
     case "QUERY_TOO_BROAD":
       return narrowingCountTools(objectType);
+    case "SCB_NO_MATCHES":
+      return ["scb_compile_query", "scb_lookup_codes", "scb_schema_summary"];
     case "SCB_RATE_LIMITED":
     case "SCB_UNAVAILABLE":
     case "SCB_AUTH_ERROR":
