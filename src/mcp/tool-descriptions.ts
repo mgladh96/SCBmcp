@@ -92,12 +92,15 @@ Returnerar categories (name, kind, serialization top-level vs Kategorier, sample
 
 Börja här i stället för includeCodeTables=true. Koder slås upp med scb_lookup_codes.`;
 
-export const LOOKUP_CODES_DESCRIPTION = `Sök i cacheade kodtabeller (lazy-fill via kodtabell-endpoint) utan att dumpa hela tabellen i kontexten.
+export const LOOKUP_CODES_DESCRIPTION = `Sök i cacheade kodtabeller (in-memory index från listCategories + getCategoryValues) utan att dumpa hela tabellen.
 
-Input: objectType, query (t.ex. Gävleborg, bygg, verksam, 10-49), valfri category, limit (standard 25).
-Svar: { matches: [{ objectType, category, code, label, kind }] }.
+Input: objectType, query, valfri kind (industry|geography|size|status), category, parentCode, limit (standard 25).
+Tom query + parentCode listar SNI-barn. Tom query + kind/category listar kodtabellvärden.
 
-Fungerar för län/kommunnamn, statusetiketter, storleksklasser och SNI-text.`;
+Svar: { matches: [{ objectType, kind, category, code, label, level?, parentCode?, hasChildren?, score }] }.
+Varje träff är filterklar: kopiera category + code rakt in i count/search. På kategorin Bransch: branchLevel = min(3, level) (bokstav→1, 2 siffror→2, 3+→3).
+
+Discovery är metadata-driven (lexikal BM25-lik ranking). Inga query→SNI-kod-mappningar. Språkalias expanderar bara söktérmer (bygg→byggverksamhet/byggnad), aldrig koder F/41/42/43.`;
 
 export const FILTER_HINTS_DESCRIPTION = `Statisk tabell frågeklass → rekommenderade kategorier/variabler/standardstatus. Ingen LLM.
 
@@ -108,7 +111,7 @@ export const COMPILE_QUERY_DESCRIPTION = `Kompilera StructuredQuery till SCB-fil
 
 Princip: agenten förstår användaren; SCBmcp förstår SCB. Skicka INTE { text: "..." } eller fritext. Agenten äger objectType (company=JE / workplace=AE) — servern gissar inte.
 
-industry är alltid objekt { query, level? }, aldrig en bar sträng. "bygg"/"byggverksamhet" → SNI 41/42/43 (eller avdelning F om den finns), inte Byggplast/fartyg/handel. Live 2-siffrig bransch * används när sektion saknas. fields[] är semantiska id:n (name, organizationNumber, municipality, employeeCount) — inte SCB-namn som "OrgNr (10 siffror)".
+industry är alltid objekt { query, level? }, aldrig en bar sträng. Kompilatorn slår upp koder via samma discovery-sökning som scb_lookup_codes (metadata + ranking). Inga query→SNI-kod-mappningar. fields[] är semantiska id:n (name, organizationNumber, municipality, employeeCount) — inte SCB-namn som "OrgNr (10 siffror)".
 
 Svar: { ok, objectType, layout, filters, resolved, coverage, warnings, unresolved }. Kompakt — ingen katalogdump.
 

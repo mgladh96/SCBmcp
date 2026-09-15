@@ -495,6 +495,8 @@ export function createToolHandlers(client: ScbClient, log = createLogger()) {
       try {
         const result = await client.lookupCodes(parsed.data.objectType, parsed.data.query, {
           category: parsed.data.category,
+          kind: parsed.data.kind,
+          parentCode: parsed.data.parentCode,
           limit: parsed.data.limit,
           bypassCache: parsed.data.bypassCache === true,
         });

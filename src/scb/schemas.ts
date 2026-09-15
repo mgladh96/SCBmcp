@@ -132,10 +132,29 @@ export const schemaSummaryInputSchema = z.object({
   bypassCache: bypassCacheSchema,
 });
 
+export const lookupKindSchema = z.enum(["industry", "geography", "size", "status", "other"]);
+
 export const lookupCodesInputSchema = z.object({
   objectType: objectTypeSchema,
-  query: z.string().min(1).describe("Söksträng mot kod och etikett, t.ex. Gävleborg, bygg, 10-49, verksam."),
-  category: z.string().min(1).optional().describe("Begränsa till en SCB-kategori. Utan kategori söks status, geografi, storlek och bransch."),
+  query: z
+    .string()
+    .default("")
+    .describe(
+      "Söksträng mot kod och etikett, t.ex. Gävleborg, bygg, 10-19, verksam. Tom med parentCode listar SNI-barn. Tom med kind/category listar kodtabellvärden. Träffarna är filterklara (category+code).",
+    ),
+  kind: lookupKindSchema
+    .optional()
+    .describe("Begränsa till industry | geography | size | status | other. Samma index som utan filter."),
+  category: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("Begränsa till en live SCB-kategori. Kopiera category+code rakt in i count/search-filter."),
+  parentCode: z
+    .string()
+    .min(1)
+    .optional()
+    .describe("SNI-förälder (bokstavssektion / 2–5 siffror). Tom query + parentCode = lista barn från metadata."),
   limit: z.number().int().positive().max(100).optional().describe(`Max träffar. Standard ${DEFAULT_LOOKUP_LIMIT}.`),
   bypassCache: bypassCacheSchema,
 });

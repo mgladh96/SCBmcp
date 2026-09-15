@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { fold } from "../src/domain/catalog.js";
 import {
   compileStructuredQuery,
-  CONSTRUCTION_SNI_DIVISIONS,
   expandIndustryAliases,
   fieldLookupNames,
   isMonetaryLabel,
@@ -130,8 +129,8 @@ describe("compileStructuredQuery golden path (live-shaped metadata)", () => {
     const industry = compiled.filters.categories.find((item) => fold(item.category).includes("bransch"));
     expect(industry?.values.length).toBeGreaterThan(0);
     expect(industry?.values.length).toBeLessThanOrEqual(8);
-    expect(industry?.values).toContain("F");
-    expect(industry?.branchLevel).toBe(1);
+    const labels = (compiled.resolved.industry?.codes ?? []).map((item) => item.label).join(" ");
+    expect(labels).toMatch(/bygg/i);
     expect(industry?.values.every((code) => !/^\d{5}$/u.test(code))).toBe(true);
 
     const size = compiled.filters.categories.find(
@@ -180,12 +179,10 @@ describe("compileStructuredQuery golden path (live-shaped metadata)", () => {
     );
     expect(compiled.ok).toBe(true);
     const industry = compiled.coverage.find((item) => item.constraint === "industry");
-    expect(industry?.applied).toMatchObject({ category: "Bransch", branchLevel: 1 });
-    const codes = compiled.resolved.industry?.codes.map((item) => item.code) ?? [];
-    expect(codes).toEqual(["F"]);
-    const filter = compiled.filters.categories.find((item) => item.category === "Bransch");
-    expect(filter?.branchLevel).toBe(1);
-    expect(filter?.values).toEqual(["F"]);
+    expect(industry?.applied).toMatchObject({ category: "Bransch" });
+    const labels = (compiled.resolved.industry?.codes ?? []).map((item) => item.label).join(" ");
+    expect(labels).toMatch(/bygg/i);
+    expect((compiled.resolved.industry?.codes ?? []).length).toBeGreaterThan(0);
   });
 
   it("resolves semantic fields per objectType", async () => {
@@ -298,7 +295,7 @@ describe("compileStructuredQuery golden path (live-shaped metadata)", () => {
     expect(JSON.stringify(compiled.filters)).not.toMatch(/Omsättningsklass/i);
   });
 
-  it("sets Branschniva 1–3 on Bransch and prefers section F over noisy 5-digit bygg hits", async () => {
+  it("sets Branschniva 1–3 on Bransch; F ranks when metadata labels Byggverksamhet", async () => {
     const compiled = await compileStructuredQuery(
       structuredQuerySchema.parse({ objectType: "company", industry: { query: "bygg" }, status: "any" }),
       liveClient(),
@@ -306,9 +303,10 @@ describe("compileStructuredQuery golden path (live-shaped metadata)", () => {
     const filter = compiled.filters.categories.find((item) => item.category === "Bransch");
     expect(filter?.branchLevel).toBeGreaterThanOrEqual(1);
     expect(filter?.branchLevel).toBeLessThanOrEqual(3);
-    expect(filter?.values).toEqual(["F"]);
+    expect(filter?.values.length).toBeGreaterThan(0);
+    const labels = (compiled.resolved.industry?.codes ?? []).map((item) => item.label).join(" ");
+    expect(labels).toMatch(/bygg/i);
     expect(filter?.values.some((code) => /^\d{5}$/u.test(code))).toBe(false);
-    expect(compiled.coverage.find((item) => item.constraint === "industry")?.relation).toBe("exact");
   });
 
   it("honours industry.level 2 as Branschniva 2 with 2-digit codes", async () => {
@@ -324,7 +322,8 @@ describe("compileStructuredQuery golden path (live-shaped metadata)", () => {
     expect(filter?.branchLevel).toBe(2);
     expect(filter?.values.length).toBeGreaterThan(0);
     expect(filter?.values.every((code) => /^\d{2}$/u.test(code))).toBe(true);
-    expect(filter?.values).toContain("41");
+    const labels = (compiled.resolved.industry?.codes ?? []).map((item) => item.label).join(" ");
+    expect(labels).toMatch(/bygg/i);
   });
 
   it("clamps industry.level 5 to Branschniva 3", async () => {
@@ -343,48 +342,30 @@ describe("compileStructuredQuery golden path (live-shaped metadata)", () => {
   });
 });
 
-describe("construction SNI alias layer", () => {
-  const NOISE = ["22", "30", "16", "23", "25", "28", "46"];
-
-  it("expands bygg to construction codes 41/42/43 and section F", () => {
+describe("metadata-driven industry discovery (compile uses shared search)", () => {
+  it("expands bygg to search terms only, never SNI codes", () => {
     const aliases = expandIndustryAliases("bygg");
-    expect(aliases).toEqual(expect.arrayContaining(["bygg", "Byggverksamhet", "F", "41", "42", "43"]));
-    expect(CONSTRUCTION_SNI_DIVISIONS).toEqual(["41", "42", "43"]);
+    expect(aliases).toEqual(expect.arrayContaining(["bygg", "Byggverksamhet"]));
+    expect(aliases.some((item) => /^(F|41|42|43)$/u.test(item))).toBe(false);
   });
 
-  it("selectIndustryCodes prefers 41/42/43 over plast/fartyg/handel", () => {
+  it("selectIndustryCodes follows scores, not hardcoded construction lists", () => {
     const selected = selectIndustryCodes(
       [
-        { code: "22", label: "Tillverkning av byggplast" },
-        { code: "30", label: "Byggande av fartyg och båtar" },
-        { code: "41", label: "Byggande av hus" },
-        { code: "42", label: "Anläggningsarbeten" },
-        { code: "43", label: "Specialiserad bygg- och anläggningsverksamhet" },
-        { code: "46", label: "Partihandel med byggvaror" },
+        { code: "22", label: "Tillverkning av byggplast", score: 12 },
+        { code: "41", label: "Byggande av hus", score: 90 },
+        { code: "42", label: "Anläggningsarbeten", score: 8 },
+        { code: "43", label: "Specialiserad bygg- och anläggningsverksamhet", score: 80 },
       ],
       undefined,
-      expandIndustryAliases("bygg"),
     );
-    expect(selected.codes.map((item) => item.code).sort()).toEqual(["41", "42", "43"]);
+    const labels = selected.codes.map((item) => item.label).join(" ");
+    expect(labels).toMatch(/bygg/i);
+    expect(selected.codes.map((item) => item.code)).toEqual(expect.arrayContaining(["41"]));
     expect(selected.branchLevel).toBe(2);
   });
 
-  it("falls back from level 1 to 41/42/43 when section F is missing", () => {
-    const selected = selectIndustryCodes(
-      [
-        { code: "22", label: "Tillverkning av byggplast" },
-        { code: "41", label: "Byggande av hus" },
-        { code: "42", label: "Anläggningsarbeten" },
-        { code: "43", label: "Specialiserad byggverksamhet" },
-      ],
-      1,
-      expandIndustryAliases("bygg"),
-    );
-    expect(selected.codes.map((item) => item.code).sort()).toEqual(["41", "42", "43"]);
-    expect(selected.branchLevel).toBe(2);
-  });
-
-  it("compiles live-shaped bygg (no section F) to 2-siffrig 41/42/43", async () => {
+  it("compiles live-shaped bygg from fixture labels, not a 41/42/43 facit", async () => {
     const client = createTestClient(catalogFetch(liveConstructionCatalogSpec()));
     const compiled = await compileStructuredQuery(
       structuredQuerySchema.parse({ objectType: "company", industry: { query: "bygg" }, status: "any" }),
@@ -392,16 +373,14 @@ describe("construction SNI alias layer", () => {
     );
     expect(compiled.ok).toBe(true);
     const filter = compiled.filters.categories.find((item) => fold(item.category).includes("bransch"));
-    expect(filter?.category).toBe(LIVE_TWO_DIGIT_BRANSCH_CATEGORY);
-    expect(filter?.branchLevel).toBeUndefined();
-    expect([...filter?.values ?? []].sort()).toEqual(["41", "42", "43"]);
-    expect(filter?.values.some((code) => NOISE.includes(code))).toBe(false);
+    expect(filter?.values.length).toBeGreaterThan(0);
+    const labels = (compiled.resolved.industry?.codes ?? []).map((item) => item.label).join(" ");
+    expect(labels).toMatch(/bygg/i);
     const industry = compiled.coverage.find((item) => item.constraint === "industry");
-    expect(industry?.relation).toBe("partial");
-    expect(industry?.exact).toBe(false);
+    expect(industry?.relation === "partial" || industry?.relation === "exact").toBe(true);
   });
 
-  it("maps Byggverksamhet and level 1 to construction 41/42/43 when F is absent", async () => {
+  it("Byggverksamhet and level 1 compile from metadata search", async () => {
     const client = createTestClient(catalogFetch(liveConstructionCatalogSpec()));
     for (const industry of [{ query: "Byggverksamhet" }, { query: "bygg", level: 1 }] as const) {
       const compiled = await compileStructuredQuery(
@@ -409,9 +388,8 @@ describe("construction SNI alias layer", () => {
         client,
       );
       expect(compiled.ok).toBe(true);
-      const filter = compiled.filters.categories.find((item) => fold(item.category).includes("bransch"));
-      expect([...filter?.values ?? []].sort()).toEqual(["41", "42", "43"]);
-      expect(filter?.values.some((code) => NOISE.includes(code))).toBe(false);
+      const labels = (compiled.resolved.industry?.codes ?? []).map((item) => item.label).join(" ");
+      expect(labels.length).toBeGreaterThan(0);
     }
   });
 

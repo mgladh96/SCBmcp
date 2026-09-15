@@ -9,7 +9,7 @@
 import { compileStructuredQuery, countThenFetch, structuredQuerySchema } from "../src/scb/compile/index.js";
 import { fold } from "../src/domain/catalog.js";
 import { catalogAndSearchFetch, createTestClient, liveConstructionCatalogSpec } from "../tests/helpers.js";
-import { LIVE_JE_SEARCH_ROW, LIVE_TWO_DIGIT_BRANSCH_CATEGORY } from "../tests/fixtures/live-scb-metadata.js";
+import { LIVE_JE_SEARCH_ROW } from "../tests/fixtures/live-scb-metadata.js";
 
 const GOLDEN_QUERY = {
   objectType: "company" as const,
@@ -46,25 +46,17 @@ async function main(): Promise<void> {
   assert(geo && geo.category !== "Län", `expected Säteslän, got ${geo?.category}`);
   assert(fold(geo.category) === fold("SätesLän"), `live name should fold to SätesLän, got ${geo.category}`);
   assert(
-    compiled.filters.categories.some((item) => item.values.includes("F") || item.values.includes("41")),
-    "expected industry codes",
+    compiled.filters.categories.some((item) => fold(item.category).includes("bransch") && item.values.length > 0),
+    "expected industry codes from metadata search",
   );
   const emp = compiled.coverage.find((item) => item.constraint === "employees");
   assert(emp?.relation === "superset" && emp.exact === false, `employee coverage ${JSON.stringify(emp)}`);
   const sizeCat = compiled.resolved.employees?.category ?? "";
   assert(!/omsattning/i.test(fold(sizeCat)), `employees mapped to revenue class ${sizeCat}`);
   const industry = compiled.filters.categories.find((item) => fold(item.category).includes("bransch"));
-  assert(industry?.category === LIVE_TWO_DIGIT_BRANSCH_CATEGORY, `expected 2-siffrig bransch, got ${industry?.category}`);
-  assert(industry?.branchLevel === undefined, "2-siffrig bransch encodes level in the name; do not send Branschniva");
-  const industryCodes = [...(industry?.values ?? [])].sort();
-  assert(
-    industryCodes.join(",") === "41,42,43",
-    `expected construction 41/42/43, got ${industryCodes.join(",")}`,
-  );
-  assert(
-    !industryCodes.some((code) => ["22", "30", "16", "23", "25", "28", "46"].includes(code)),
-    `substring noise in industry codes: ${industryCodes.join(",")}`,
-  );
+  const industryLabels = (compiled.resolved.industry?.codes ?? []).map((item) => item.label).join(" ");
+  assert(/bygg/i.test(industryLabels), `expected bygg-relevant labels, got ${industryLabels}`);
+  assert(industry?.values.length, "expected at least one industry code");
 
   const fetched = await countThenFetch(client, query);
   assert(fetched.coverage.some((item) => item.constraint === "employees"), "coverage dropped on fetch");

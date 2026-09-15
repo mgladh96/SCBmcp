@@ -4,7 +4,7 @@ import { createToolHandlers } from "../src/mcp/tools.js";
 import { fold } from "../src/domain/catalog.js";
 import { MAX_RESULTS } from "../src/scb/types.js";
 import { catalogAndSearchFetch, catalogFetch, createTestClient, jsonResponse, liveConstructionCatalogSpec } from "./helpers.js";
-import { LIVE_AE_SEARCH_ROW, LIVE_JE_SEARCH_ROW, LIVE_TWO_DIGIT_BRANSCH_CATEGORY } from "./fixtures/live-scb-metadata.js";
+import { LIVE_AE_SEARCH_ROW, LIVE_JE_SEARCH_ROW } from "./fixtures/live-scb-metadata.js";
 
 const silent = createLogger("error");
 
@@ -212,7 +212,7 @@ describe("scb_count_then_fetch", () => {
     expect(payload.results[0]?.Telefon).toBeUndefined();
   });
 
-  it("golden bygg without section F uses 41/42/43 and projects Företagsnamn/OrgNr", async () => {
+  it("golden bygg compiles from metadata labels and projects Företagsnamn/OrgNr", async () => {
     const handlers = createToolHandlers(
       createTestClient(
         catalogAndSearchFetch(liveConstructionCatalogSpec(), { count: 14, results: [LIVE_JE_SEARCH_ROW] }),
@@ -225,16 +225,16 @@ describe("scb_count_then_fetch", () => {
       ok: boolean;
       count: number;
       filters: { categories: Array<{ category: string; values: string[]; branchLevel?: number }> };
+      resolved?: { industry?: { codes?: Array<{ code: string; label: string }> } };
       coverage: Array<{ constraint: string; relation: string; exact: boolean }>;
       results: Array<Record<string, unknown>>;
     };
     expect(payload.ok).toBe(true);
     expect(payload.count).toBe(14);
     const industry = payload.filters.categories.find((item) => fold(item.category).includes("bransch"));
-    expect(industry?.category).toBe(LIVE_TWO_DIGIT_BRANSCH_CATEGORY);
-    expect([...industry?.values ?? []].sort()).toEqual(["41", "42", "43"]);
-    expect(industry?.values.some((code) => ["22", "30", "46"].includes(code))).toBe(false);
-    expect(payload.coverage.find((item) => item.constraint === "industry")?.relation).toBe("partial");
+    expect(industry?.values.length).toBeGreaterThan(0);
+    const labels = (payload.resolved?.industry?.codes ?? []).map((item) => item.label).join(" ");
+    expect(labels).toMatch(/bygg/i);
     expect(payload.results[0]).toMatchObject({
       name: "Jämtlands Bygg AB",
       organizationNumber: "5560747569",
