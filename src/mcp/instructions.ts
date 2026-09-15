@@ -8,11 +8,13 @@ Objekttyper (alltid explicita):
 - company = JE (juridisk enhet). Geografi = Säteslän / Säteskommun (säte), inte AE Län.
 - workplace = AE (arbetsställe). Geografi = Län / Kommun (belägenhet).
 
-Happy path (≤2 verktyg) — föredra scb_query först:
-1. scb_query med StructuredQuery. Ett anrop räcker när branschen är entydig (status=ok: count + rader + coverage + resolved).
-2. Om status=choose: välj bland filterklara candidates (max 5). Hitta inte på ett filter. Andra anropet: scb_query med industry.codes (t.ex. ["41"] eller ["41","42","43"]). Query behövs inte då. Geografi/anställda från första svaret kan följa med.
-3. status=impossible: olöst/orepresenterbart — läs reason. Använd inte scb_discover bara för att göra om samma discovery.
-4. scb_compile_query är valfri dry-run och krävs inte. scb_discover / scb_lookup_codes bara vid utforskning.
+Agentkontrakt — föredra scb_query först (≤2 verktyg):
+1. Anropa scb_query med StructuredQuery: objectType, industry, geography, employees, maxRows, fields. Ingen { text: "..." }.
+2. status: "ok" → använd count + rader; respektera coverage (superset/subset är inte exact).
+3. status: "choose" → välj bland candidates (max 5, filterklara). Andra anropet: scb_query med industry.codes (t.ex. ["41"]). Query behövs inte. Ingen ny scb_discover.
+4. status: "impossible" → läs reason. Prova scb_discover med andra vardagstermer ELLER bredda villkor. Hitta inte på SNI-koder.
+5. scb_discover / scb_lookup_codes bara vid utforskning — inte på varje happy-path-fråga.
+6. scb_compile_query är valfri dry-run, inte ett steg på happy path.
 
 StructuredQuery: objectType; industry: { query, level? } eller { codes, category?, branchLevel? } (samma discoverCodes som scb_discover — tydlig cluster → filter, tvetydigt → choose+candidates; inte query→kod-tabell; Bransch kräver Branschniva 1–3 — 2-siffrig bransch * behöver den inte); geography: { type: county|municipality|aregion, value }; employees: { min?, max? } → Anställda/Storleksklass Anställda (aldrig Omsättningsklass; 10–15 mot 10–19 = superset, exact=false); status: active|any (default active); maxRows; fields: semantiska id:n (name, organizationNumber, municipality, employeeCount) — inte SCB-namn.
 
@@ -36,7 +38,7 @@ Fel-JSON: läs nextAction (retry_same | retry_modified | abort_unanswerable) och
 
 export function exploreSchemaPrompt(objectType: string): string {
   const layout = objectType === "workplace" ? "AE (workplace)" : "JE (company)";
-  return `Utforska SCB-schemat för ${layout} innan du filtrerar.
+  return `Utforska SCB-schemat för ${layout} (manuellt flöde — inte happy path). Föredra scb_query med StructuredQuery först.
 
 1. Anropa scb_schema_summary med objectType="${objectType}". Använd exakta namn från categories[].name / variables[].name.
 2. Anropa scb_discover / scb_lookup_codes för etiketter (Gävleborg, SNI-text, storleksklass). Träffar är filterklara (category+code). Dumpa inte SNI.

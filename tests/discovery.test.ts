@@ -86,6 +86,21 @@ describe("discovery index", () => {
     expect(result.matches[0]?.label).toMatch(/restaurang/i);
     expect(result.matches.some((item) => /restaurang/i.test(item.label))).toBe(true);
   });
+
+  it("expands markentreprenad to Mark- och grundarbeten / anläggnings labels", () => {
+    const result = searchCodeTables("company", "markentreprenad", industryTables(), 8, { kind: "industry" });
+    expect(result.matches.length).toBeGreaterThan(0);
+    const labels = result.matches.map((item) => item.label).join(" | ");
+    expect(labels).toMatch(/mark- och grundarbeten|anläggnings/i);
+    expect(result.matches.every((item) => item.category && item.code)).toBe(true);
+  });
+
+  it("expands städfirma to städning / städtjänster catalog labels", () => {
+    const result = searchCodeTables("company", "städfirma", industryTables(), 8, { kind: "industry" });
+    expect(result.matches.length).toBeGreaterThan(0);
+    expect(result.matches.map((item) => item.label).join(" ")).toMatch(/städ|rengör/i);
+    expect(result.matches.every((item) => item.category && item.code)).toBe(true);
+  });
 });
 
 describe("scb_lookup_codes discovery fields", () => {

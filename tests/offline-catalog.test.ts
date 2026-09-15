@@ -77,12 +77,23 @@ describe("local catalog search", () => {
   const index = discoveryIndexFromLayout(catalog.layouts.company);
 
   it("finds the cleaning/facility branch for städ and städning", () => {
-    for (const query of ["städ", "städning"]) {
+    for (const query of ["städ", "städning", "städfirma", "städbolag", "lokalvårdare"]) {
       const hits = searchDiscoveryIndex(index, { query, kind: "industry" });
       expect(hits.length).toBeGreaterThan(0);
       const labels = hits.map((hit) => hit.label).join(" ");
       expect(labels).toMatch(/städ|rengör|fastighetsservice/i);
       expect(hits.some((hit) => hit.code === "81" || hit.code.startsWith("81") || hit.code === "N")).toBe(true);
+      expect(hits[0]?.category).toBeTruthy();
+      expect(hits[0]?.code).toBeTruthy();
+    }
+  });
+
+  it("finds mark- och grundarbeten / anläggnings labels for markentreprenad", () => {
+    for (const query of ["markentreprenad", "schakt", "gräv"]) {
+      const hits = searchDiscoveryIndex(index, { query, kind: "industry" });
+      expect(hits.length).toBeGreaterThan(0);
+      const labels = hits.map((hit) => hit.label).join(" ");
+      expect(labels).toMatch(/mark- och grundarbeten|anläggnings/i);
       expect(hits[0]?.category).toBeTruthy();
       expect(hits[0]?.code).toBeTruthy();
     }

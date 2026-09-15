@@ -361,6 +361,21 @@ describe("metadata-driven industry discovery (compile wraps shared search)", () 
     expect(aliases.some((item) => /^(F|41|42|43)$/u.test(item))).toBe(false);
   });
 
+  it("expands markentreprenad and städfirma to catalog labels, never SNI codes", () => {
+    const mark = expandIndustryAliases("markentreprenad");
+    expect(mark).toEqual(expect.arrayContaining(["markentreprenad", "Mark- och grundarbeten", "Anläggningsarbeten"]));
+    expect(mark.some((item) => /^(F|41|42|43|43120)$/u.test(item))).toBe(false);
+
+    const cleaning = expandIndustryAliases("städfirma");
+    expect(cleaning).toEqual(expect.arrayContaining(["städfirma", "Städning", "Städtjänster", "Lokalvård"]));
+    expect(cleaning.some((item) => /^\d{2,5}$/u.test(item))).toBe(false);
+
+    expect(expandIndustryAliases("städbolag")).toEqual(expect.arrayContaining(["Städning", "Städtjänster"]));
+    expect(expandIndustryAliases("lokalvårdare")).toEqual(expect.arrayContaining(["Lokalvård", "Städning"]));
+    expect(expandIndustryAliases("schakt")).toEqual(expect.arrayContaining(["Mark- och grundarbeten", "Anläggningsarbeten"]));
+    expect(expandIndustryAliases("gräv")).toEqual(expect.arrayContaining(["Mark- och grundarbeten", "mark"]));
+  });
+
   it("resolveIndustryCluster takes a clear exact-label top hit, not a code list", () => {
     const selected = resolveIndustryCluster(
       [

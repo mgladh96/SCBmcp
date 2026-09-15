@@ -15,6 +15,7 @@ describe("discovery eval", () => {
         "jamtland",
         "lanlista",
         "stadning",
+        "markentreprenad",
         "employee-size",
         "unknown-term",
       ]),
