@@ -20,6 +20,20 @@ async function main(): Promise<void> {
     },
     logLevel: config.logLevel,
   });
+  const catalog = client.catalogInfo();
+  if (catalog) {
+    log.info("SCB offline catalog ready", {
+      endpoint: "catalog",
+      count: catalog.docCount,
+      source: catalog.source,
+    });
+    if (catalog.source === "fixture") {
+      log.info(
+        "SCB catalog source is fixture, not live SoT; warm will replace Anställda/SNI/geo when SCB is reachable",
+        { endpoint: "catalog", source: catalog.source },
+      );
+    }
+  }
   const handlers = createToolHandlers(client, log);
   const httpServer = createSseHttpServer({
     createMcpServer: () => createMcpServer(handlers),
@@ -40,7 +54,7 @@ async function main(): Promise<void> {
     auth: config.authToken ? "required" : "disabled",
   });
 
-  void client.warmMetadataCache().catch((error: unknown) => {
+  void client.warmMetadataCache({ persist: true }).catch((error: unknown) => {
     log.error("SCB metadata warm crashed", {
       errorCode: error instanceof ScbError ? error.code : "SCB_UNAVAILABLE",
     });

@@ -92,7 +92,7 @@ Returnerar categories (name, kind, serialization top-level vs Kategorier, sample
 
 Börja här i stället för includeCodeTables=true. Koder slås upp med scb_lookup_codes.`;
 
-export const LOOKUP_CODES_DESCRIPTION = `Sök i cacheade kodtabeller (in-memory index från listCategories + getCategoryValues) utan att dumpa hela tabellen.
+export const LOOKUP_CODES_DESCRIPTION = `Sök i den lokala kodkatalogen (bundlad snapshot / in-memory index) utan att dumpa hela tabellen. Live-SCB anropas inte för discovery när katalogen är laddad.
 
 Alias: scb_discover (samma motor). Föredra scb_query först; använd discover/lookup bara när du utforskar koder.
 
@@ -103,7 +103,7 @@ Svar: { matches: [{ objectType, kind, category, code, label, level?, parentCode?
 Varje träff är filterklar: kopiera category + code rakt in i count/search, eller skicka industry.codes till scb_query.
 På kategorin Bransch: branchLevel = min(3, level) (bokstav→1, 2 siffror→2, 3+→3).
 
-Discovery är metadata-driven (lexikal BM25-lik ranking). Inga query→SNI-kod-mappningar. Språkalias expanderar bara söktérmer (bygg→byggverksamhet/byggnad), aldrig koder F/41/42/43.`;
+Discovery är metadata-driven (lexikal BM25-lik ranking mot katalogetiketter). Inga query→SNI-kod-mappningar. Språkalias expanderar bara söktérmer (städ→städning/städtjänster, bygg→byggverksamhet/byggnad), aldrig koder F/41/42/43.`;
 
 export const DISCOVER_CODES_DESCRIPTION = LOOKUP_CODES_DESCRIPTION;
 
@@ -126,14 +126,16 @@ Anställda 10–15 mot SCB-klass 10–19 → superset, exact=false. Aldrig tyst 
 
 Kan träffa metadata/kodtabell internt (cache). Använd scb_query för räkna+hämta.`;
 
-export const QUERY_DESCRIPTION = `Primär happy path: StructuredQuery → (vid behov) discovery → räkna → hämta. Föredra detta först. Högst två anrop: tvetydig bransch ger status=choose med filterklara candidates i samma svar; andra anropet skickar industry.codes.
+export const QUERY_DESCRIPTION = `Primär happy path: StructuredQuery → lokal katalog (bransch/geo/storlek) → live räkna/hämta. Föredra detta först. Högst två anrop: tvetydig bransch ger status=choose med filterklara candidates i samma svar; andra anropet skickar industry.codes.
 
 Tre utfall (aldrig tyst 41 vs båt-30):
 - status: "ok" — count + projicerade rader + coverage + resolved.
 - status: "choose" — max 5 filterklara candidates (category, code, label, level?, parentCode?, score?, why). Geografi/anställda kan redan vara resolved. Hitta INTE på ett filter; välj kod och anropa scb_query igen med industry.codes (query behövs inte). Ingen extra scb_discover-runda krävs.
 - status: "impossible" — orepresenterbart/olöst med reason + ev. candidates.
 
-StructuredQuery: objectType (obligatorisk) + industry/geography/employees/status/maxRows/fields. industry: { query, level? } eller { codes: ["41"], category?, branchLevel? }. Status default active. Coverage beräknas. Semantiska fields, inte SCB-namn.
+StructuredQuery: objectType (obligatorisk) + industry/geography/employees/status/maxRows/fields. industry: { query, level? } eller { codes: ["81"], category?, branchLevel? }. Status default active. Coverage beräknas. Semantiska fields, inte SCB-namn.
+
+Katalogresolution är lokal (noll live-metadata när snapshot finns). Live-SCB används bara för rakna/hamta.
 
 Redan kompilerat { objectType, filters, maxRows?, fields? } fungerar fortfarande (semantiska slotar ignoreras då).
 

@@ -3,7 +3,8 @@ import {
   LIVE_TWO_DIGIT_BRANSCH_CATEGORY,
 } from "../fixtures/live-scb-metadata.js";
 import type { MockCatalogSpec } from "../helpers.js";
-import { liveConstructionCatalogSpec } from "../helpers.js";
+import { liveConstructionCatalogSpec, LIVE_EMPLOYEE_SIZE_BANDS } from "../helpers.js";
+import { buildCatalogArtifact } from "../../src/scb/offline-catalog.js";
 
 /** Substring-noise 2-digit codes that must not win for construction aliases. */
 export const CONSTRUCTION_NOISE_CODES = ["22", "30", "16", "23", "25", "28", "46"] as const;
@@ -32,15 +33,8 @@ const AREGIONS: Array<{ code: string; label: string }> = [
   { code: "SE322", label: "Jämtlands län" },
 ];
 
-const SIZE_BANDS: Array<{ code: string; label: string }> = [
-  { code: "0", label: "0 anställda" },
-  { code: "1", label: "1-4 anställda" },
-  { code: "2", label: "5-9 anställda" },
-  { code: "4", label: "10-19 anställda" },
-  { code: "5", label: "20-49 anställda" },
-  { code: "6", label: "50-99 anställda" },
-  { code: "7", label: "100-199 anställda" },
-];
+/** Live SCB Anställda kodtabell — not a guessed 0,1,2 sequence. */
+const SIZE_BANDS: Array<{ code: string; label: string }> = LIVE_EMPLOYEE_SIZE_BANDS;
 
 /**
  * Live-shaped kodtabell for blind cases: construction noise + restaurant/IT/transport/retail.
@@ -66,6 +60,12 @@ export const DIVERSE_INDUSTRY_ROWS: Array<{ code: string; label: string }> = [
   { code: "56102", label: "Kaféer och konditorier" },
   { code: "62010", label: "Dataprogrammering" },
   { code: "62020", label: "Datakonsulter" },
+  { code: "N", label: "Uthyrning, fastighetsservice, resetjänster och andra stödtjänster" },
+  { code: "81", label: "Fastighetsserviceverksamhet" },
+  { code: "812", label: "Städtjänster" },
+  { code: "8121", label: "Allmän städning av byggnader" },
+  { code: "81210", label: "Rengöring och städning av byggnader" },
+  { code: "81290", label: "Övrig rengöring" },
   { code: "70220", label: "Konsultverksamhet avseende företags organisation" },
 ];
 
@@ -107,6 +107,13 @@ export function diverseCatalogSpec(): MockCatalogSpec {
       workplace: ["Benämning", "CfarNr", "OrgNr (12 siffror)"],
     },
     tables: {
+      Företagsstatus: [
+        { code: "1", label: "verksam" },
+        { code: "0", label: "aldrig verksam" },
+        { code: "9", label: "ej verksam" },
+      ],
+      Registreringsstatus: [{ code: "1", label: "skatteregistrerad" }],
+      Arbetsställestatus: [{ code: "1", label: "verksam" }],
       Säteslän: COUNTIES,
       Län: COUNTIES,
       Säteskommun: MUNICIPALITIES,
@@ -123,4 +130,33 @@ export function diverseCatalogSpec(): MockCatalogSpec {
 
 export function catalogSpecFor(fixture: "construction" | "diverse"): MockCatalogSpec {
   return fixture === "construction" ? constructionCatalogSpec() : diverseCatalogSpec();
+}
+
+/** Bundled snapshot input: same metadata the discovery-eval fixtures use. */
+export function fixtureCatalogArtifact(builtAt = "2026-09-15T00:00:00.000Z") {
+  const spec = diverseCatalogSpec();
+  const companyCategories = spec.categories?.company ?? [];
+  const workplaceCategories = spec.categories?.workplace ?? [];
+  const tables = spec.tables ?? {};
+  const layoutTables = (categoryNames: string[]) =>
+    categoryNames
+      .filter((name) => tables[name])
+      .map((category) => ({ category, rows: tables[category] ?? [] }));
+  return buildCatalogArtifact({
+    builtAt,
+    source: "fixture",
+    sourceVersion: "eval-diverse+cleaning",
+    layouts: {
+      company: {
+        categoryNames: companyCategories,
+        variableNames: spec.variables?.company ?? [],
+        tables: layoutTables(companyCategories),
+      },
+      workplace: {
+        categoryNames: workplaceCategories,
+        variableNames: spec.variables?.workplace ?? [],
+        tables: layoutTables(workplaceCategories),
+      },
+    },
+  });
 }

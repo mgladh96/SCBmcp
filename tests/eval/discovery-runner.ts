@@ -8,8 +8,9 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { createLogger } from "../../src/log.js";
 import { createToolHandlers, type ToolHandlers } from "../../src/mcp/tools.js";
-import { catalogFetch, createTestClient } from "../helpers.js";
-import { diverseCatalogSpec } from "./catalog.js";
+import { bundledCatalogPath, loadCatalogFromDisk } from "../../src/scb/offline-catalog.js";
+import { createTestClient } from "../helpers.js";
+import { fixtureCatalogArtifact } from "./catalog.js";
 
 const CASES_PATH = join(dirname(fileURLToPath(import.meta.url)), "discovery-cases.json");
 const silent = createLogger("error");
@@ -82,7 +83,16 @@ export function loadDiscoveryCases(path = CASES_PATH): DiscoveryEvalCase[] {
 }
 
 export function discoveryHandlers(): ToolHandlers {
-  return createToolHandlers(createTestClient(catalogFetch(diverseCatalogSpec())), silent);
+  const catalog = loadCatalogFromDisk(bundledCatalogPath()) ?? fixtureCatalogArtifact();
+  return createToolHandlers(
+    createTestClient(
+      async () => {
+        throw new Error("discovery-eval searches the local catalog, not live SCB");
+      },
+      { offlineCatalog: catalog },
+    ),
+    silent,
+  );
 }
 
 function isFilterReady(match: NonNullable<LookupPayload["matches"]>[number]): boolean {

@@ -35,7 +35,7 @@ function walkTs(dir: string): string[] {
 
 describe("arch: no query→SNI-code mappings", () => {
   it("expandIndustryAliases emits search terms only, never SNI codes", () => {
-    for (const query of ["bygg", "byggverksamhet", "restaurang", "transport", "IT", "handel"]) {
+    for (const query of ["bygg", "byggverksamhet", "restaurang", "transport", "IT", "handel", "städ", "städning"]) {
       const extra = expandIndustryAliases(query).filter((term) => term.trim().toLowerCase() !== query.trim().toLowerCase());
       for (const term of extra) {
         expect(looksLikeSniCode(term), `${query} → ${term}`).toBe(false);
@@ -44,6 +44,9 @@ describe("arch: no query→SNI-code mappings", () => {
     const bygg = expandSearchTerms("bygg");
     expect(bygg.some((term) => /byggverksamhet|byggnad|byggande/i.test(term))).toBe(true);
     expect(bygg.some((term) => looksLikeSniCode(term) && term.trim().toLowerCase() !== "bygg")).toBe(false);
+    const stad = expandSearchTerms("städ");
+    expect(stad.some((term) => /städning|städtjänster|lokalvård|rengöring/i.test(term))).toBe(true);
+    expect(stad.some((term) => looksLikeSniCode(term))).toBe(false);
   });
 
   it("aliases module has no construction code lists or query→code tables", () => {

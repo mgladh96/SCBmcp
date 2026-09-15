@@ -7,7 +7,7 @@ import { fold } from "../../domain/catalog.js";
  * Language aliases expand to **search terms only** (labels/tokens). Never expand a
  * query to SNI codes (F, 41, 42, 43, …). Ranking comes from metadata search.
  */
-export const SEMANTIC_ALIAS_VERSION = 3 as const;
+export const SEMANTIC_ALIAS_VERSION = 4 as const;
 
 const PLACE_ALIASES: Record<string, readonly string[]> = {
   jamtland: ["Jämtlands län", "Jämtland"],
@@ -25,6 +25,9 @@ const INDUSTRY_ALIASES: Record<string, readonly string[]> = {
   kafe: ["Kafé", "Café", "Restaurangverksamhet"],
   transport: ["Transport", "Landtransport", "Magasinering", "Godstransport"],
   it: ["Informationsteknik", "Dataprogrammering", "Datakonsult", "Kommunikation"],
+  stad: ["Städning", "Städtjänster", "Lokalvård", "Rengöring", "Fastighetsservice"],
+  stadning: ["Städning", "Städtjänster", "Lokalvård", "Rengöring"],
+  stadforetag: ["Städtjänster", "Städning", "Lokalvård"],
 };
 
 export function expandPlaceAliases(value: string, geoType: "county" | "municipality" | "aregion"): string[] {

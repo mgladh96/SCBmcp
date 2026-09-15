@@ -15,6 +15,7 @@ describe.skipIf(!live)("live SCB Allmänna företagsregister", () => {
         certPath: config.certPath,
         certPassword: config.certPassword,
       },
+      offlineCatalog: false,
     });
     const categories = await client.listCategories("company");
     expect(categories).toBeDefined();

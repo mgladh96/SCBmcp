@@ -4,10 +4,22 @@ import { join } from "node:path";
 import { ScbClient, type FetchLike } from "../src/scb/client.js";
 import type { ScbAuthConfig } from "../src/scb/auth.js";
 import type { SlidingWindowRateLimiter } from "../src/scb/rate-limit.js";
+import type { CatalogArtifact } from "../src/scb/offline-catalog.js";
 import {
   LIVE_NOISY_TWO_DIGIT_BRANSCH,
   LIVE_TWO_DIGIT_BRANSCH_CATEGORY,
 } from "./fixtures/live-scb-metadata.js";
+
+/** Live SCB Anställda / Storleksklass Anställda kodtabell (1–4 → 2, 5–9 → 3). Labels are SoT. */
+export const LIVE_EMPLOYEE_SIZE_BANDS: Array<{ code: string; label: string }> = [
+  { code: "0", label: "0 anställda" },
+  { code: "2", label: "1-4 anställda" },
+  { code: "3", label: "5-9 anställda" },
+  { code: "4", label: "10-19 anställda" },
+  { code: "5", label: "20-49 anställda" },
+  { code: "6", label: "50-99 anställda" },
+  { code: "7", label: "100-199 anställda" },
+];
 
 export function dummyCertPath(): string {
   const dir = mkdtempSync(join(tmpdir(), "scb-cert-"));
@@ -42,6 +54,7 @@ export function createTestClient(
     bypassMetadataCache?: boolean;
     rateLimiter?: SlidingWindowRateLimiter;
     sleep?: (ms: number) => Promise<void>;
+    offlineCatalog?: CatalogArtifact | string | false;
   } = {},
 ): ScbClient {
   return new ScbClient({
@@ -51,6 +64,7 @@ export function createTestClient(
     skipCertLoad: true,
     logLevel: "error",
     bypassMetadataCache: extras.bypassMetadataCache ?? false,
+    offlineCatalog: extras.offlineCatalog ?? false,
     ...(extras.rateLimiter ? { rateLimiter: extras.rateLimiter } : {}),
     ...(extras.sleep ? { sleep: extras.sleep } : {}),
   });
@@ -164,22 +178,8 @@ export function catalogFetch(spec: MockCatalogSpec): FetchLike {
     ],
     SätesARegion: [{ code: "SE322", label: "Jämtlands län" }],
     ARegion: [{ code: "SE322", label: "Jämtlands län" }],
-    "Storleksklass Anställda": [
-      { code: "0", label: "0 anställda" },
-      { code: "1", label: "1-4 anställda" },
-      { code: "2", label: "5-9 anställda" },
-      { code: "4", label: "10-19 anställda" },
-      { code: "5", label: "20-49 anställda" },
-      { code: "6", label: "50-99 anställda" },
-    ],
-    Anställda: [
-      { code: "0", label: "0 anställda" },
-      { code: "1", label: "1-4 anställda" },
-      { code: "2", label: "5-9 anställda" },
-      { code: "4", label: "10-19 anställda" },
-      { code: "5", label: "20-49 anställda" },
-      { code: "6", label: "50-99 anställda" },
-    ],
+    "Storleksklass Anställda": LIVE_EMPLOYEE_SIZE_BANDS,
+    Anställda: LIVE_EMPLOYEE_SIZE_BANDS,
     "Omsättningsklass fin": [
       { code: "01", label: "1 - 49 tkr" },
       { code: "04", label: "10 000 - 19 999 tkr" },

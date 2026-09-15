@@ -100,7 +100,11 @@ export type CompileResult = {
 export type CompileMetadataSource = Pick<
   ScbClient,
   "listCategories" | "listVariables" | "getCategoryValues" | "lookupCodes"
->;
+> & {
+  offlineCategoryNames?(objectType: ObjectType): string[] | undefined;
+  offlineVariableNames?(objectType: ObjectType): string[] | undefined;
+  offlineCodeRows?(objectType: ObjectType, category: string): Array<{ code: string; label: string }> | undefined;
+};
 
 export const DEFAULT_SEMANTIC_FIELDS = [
   "name",

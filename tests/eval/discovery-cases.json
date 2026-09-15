@@ -106,6 +106,19 @@
     }
   },
   {
+    "id": "stadning",
+    "description": "Cleaning/facility labels from the local catalog, not a hardcoded SNI list.",
+    "objectType": "company",
+    "query": "städning",
+    "kind": "industry",
+    "topK": 8,
+    "expect": {
+      "minHits": 1,
+      "filterReady": true,
+      "labelPattern": "städ|rengör|fastighetsservice"
+    }
+  },
+  {
     "id": "employee-size",
     "description": "Employee size class 10-19 from kodtabell.",
     "objectType": "company",

@@ -22,7 +22,9 @@
     "mcp:smoke": "tsx scripts/mcp-smoke.ts",
     "golden-path": "tsx scripts/golden-path.ts",
     "blind-eval": "tsx scripts/blind-eval.ts",
-    "discovery-eval": "tsx scripts/discovery-eval.ts"
+    "discovery-eval": "tsx scripts/discovery-eval.ts",
+    "catalog:refresh": "tsx scripts/catalog-refresh.ts",
+    "catalog:refresh:fixture": "tsx scripts/catalog-refresh.ts --fixture"
   },
   "keywords": [
     "mcp",
