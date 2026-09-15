@@ -1,0 +1,631 @@
+[
+  {
+    "id": "golden-jamtland-bygg-10-15",
+    "description": "Known baseline: JE seat in Jämtland, construction bygg, 10–15 employees (SCB class 10–19 = superset).",
+    "tier": "golden",
+    "live": true,
+    "fixture": "construction",
+    "query": {
+      "objectType": "company",
+      "industry": { "query": "bygg" },
+      "geography": { "type": "county", "value": "Jämtland" },
+      "employees": { "min": 10, "max": 15 },
+      "maxRows": 50,
+      "fields": ["name", "organizationNumber", "municipality", "employeeCount"]
+    },
+    "mock": { "count": 14 },
+    "expect": {
+      "objectType": "company",
+      "layout": "je",
+      "geographyCategoryContains": "sateslan",
+      "industryMustIncludeCodes": ["41", "42", "43"],
+      "industryMustNotIncludeNoise": ["22", "30", "16", "23", "25", "28", "46"],
+      "employeeRelation": "superset",
+      "forbidFalseExact": true,
+      "compileOk": true,
+      "fetchOutcome": "success",
+      "minToolCallsMax": 2
+    }
+  },
+  {
+    "id": "blind-ae-jamtland-bygg",
+    "description": "AE location (not seat): workplaces in Jämtland county, construction, 10–15 employees.",
+    "tier": "blind",
+    "live": true,
+    "fixture": "construction",
+    "query": {
+      "objectType": "workplace",
+      "industry": { "query": "bygg" },
+      "geography": { "type": "county", "value": "Jämtland" },
+      "employees": { "min": 10, "max": 15 },
+      "maxRows": 50,
+      "fields": ["name", "organizationNumber", "municipality", "employeeCount"]
+    },
+    "mock": { "count": 9 },
+    "expect": {
+      "objectType": "workplace",
+      "layout": "ae",
+      "geographyCategoryContains": "lan",
+      "industryMustIncludeCodes": ["41", "42", "43"],
+      "industryMustNotIncludeNoise": ["22", "30", "16", "23", "25", "28", "46"],
+      "employeeRelation": "superset",
+      "forbidFalseExact": true,
+      "compileOk": true,
+      "fetchOutcome": "success",
+      "minToolCallsMax": 2
+    }
+  },
+  {
+    "id": "blind-je-stockholm-dataprogrammering",
+    "description": "JE IT: dataprogrammering in Stockholms län, exact 10–19 employee band.",
+    "tier": "blind",
+    "fixture": "diverse",
+    "query": {
+      "objectType": "company",
+      "industry": { "query": "dataprogrammering" },
+      "geography": { "type": "county", "value": "Stockholm" },
+      "employees": { "min": 10, "max": 19 },
+      "maxRows": 25
+    },
+    "mock": { "count": 6 },
+    "expect": {
+      "objectType": "company",
+      "layout": "je",
+      "geographyCategoryContains": "sateslan",
+      "industryMustIncludeCodes": ["62010"],
+      "industryMustNotIncludeNoise": ["41", "42", "43", "F"],
+      "employeeRelation": "exact",
+      "forbidFalseExact": true,
+      "compileOk": true,
+      "fetchOutcome": "success",
+      "minToolCallsMax": 2
+    }
+  },
+  {
+    "id": "blind-ae-gavle-restaurang",
+    "description": "AE municipality: restaurang in Gävle (belägenhet Kommun, not Säteskommun).",
+    "tier": "blind",
+    "fixture": "diverse",
+    "query": {
+      "objectType": "workplace",
+      "industry": { "query": "restaurang" },
+      "geography": { "type": "municipality", "value": "Gävle" },
+      "maxRows": 25
+    },
+    "mock": { "count": 11 },
+    "expect": {
+      "objectType": "workplace",
+      "layout": "ae",
+      "geographyCategoryContains": "kommun",
+      "industryMustIncludeCodes": ["I"],
+      "industryMustNotIncludeNoise": ["41", "42", "43", "F"],
+      "compileOk": true,
+      "fetchOutcome": "success",
+      "minToolCallsMax": 2
+    }
+  },
+  {
+    "id": "blind-je-ostersund-cafe",
+    "description": "JE municipality seat: café in Östersund (accented café vs SNI Caféverksamhet).",
+    "tier": "blind",
+    "fixture": "diverse",
+    "query": {
+      "objectType": "company",
+      "industry": { "query": "café" },
+      "geography": { "type": "municipality", "value": "Östersund" },
+      "employees": { "min": 1, "max": 4 },
+      "maxRows": 25
+    },
+    "mock": { "count": 3 },
+    "expect": {
+      "objectType": "company",
+      "layout": "je",
+      "geographyCategoryContains": "sateskommun",
+      "industryMustIncludeCodes": ["56101"],
+      "industryMustNotIncludeNoise": ["41", "22", "46"],
+      "employeeRelation": "exact",
+      "forbidFalseExact": true,
+      "compileOk": true,
+      "fetchOutcome": "success",
+      "minToolCallsMax": 2
+    }
+  },
+  {
+    "id": "blind-ae-skane-transport",
+    "description": "AE county: transport in Skåne (not a golden-path län).",
+    "tier": "blind",
+    "fixture": "diverse",
+    "query": {
+      "objectType": "workplace",
+      "industry": { "query": "transport" },
+      "geography": { "type": "county", "value": "Skåne" },
+      "status": "active",
+      "maxRows": 25
+    },
+    "mock": { "count": 18 },
+    "expect": {
+      "objectType": "workplace",
+      "layout": "ae",
+      "geographyCategoryContains": "lan",
+      "industryMustIncludeCodes": ["H"],
+      "industryMustNotIncludeNoise": ["41", "42", "43"],
+      "compileOk": true,
+      "fetchOutcome": "success",
+      "minToolCallsMax": 2
+    }
+  },
+  {
+    "id": "blind-je-vgr-detaljhandel",
+    "description": "JE county: detaljhandel (retail) in Västra Götaland.",
+    "tier": "blind",
+    "fixture": "diverse",
+    "query": {
+      "objectType": "company",
+      "industry": { "query": "detaljhandel" },
+      "geography": { "type": "county", "value": "Västra Götaland" },
+      "employees": { "min": 20, "max": 49 },
+      "maxRows": 25
+    },
+    "mock": { "count": 8 },
+    "expect": {
+      "objectType": "company",
+      "layout": "je",
+      "geographyCategoryContains": "sateslan",
+      "industryMustIncludeCodes": ["47"],
+      "industryMustNotIncludeNoise": ["41", "F", "56"],
+      "employeeRelation": "exact",
+      "forbidFalseExact": true,
+      "compileOk": true,
+      "fetchOutcome": "success",
+      "minToolCallsMax": 2
+    }
+  },
+  {
+    "id": "blind-ae-stockholm-konsult",
+    "description": "AE municipality: konsult in Stockholm — ambiguous IT vs management consulting.",
+    "tier": "blind",
+    "fixture": "diverse",
+    "query": {
+      "objectType": "workplace",
+      "industry": { "query": "konsult" },
+      "geography": { "type": "municipality", "value": "Stockholm" },
+      "maxRows": 25
+    },
+    "mock": { "count": 22 },
+    "expect": {
+      "objectType": "workplace",
+      "layout": "ae",
+      "geographyCategoryContains": "kommun",
+      "industryMustNotIncludeNoise": ["41", "42", "43", "F", "22"],
+      "compileOk": true,
+      "fetchOutcome": "success",
+      "minToolCallsMax": 2
+    }
+  },
+  {
+    "id": "blind-je-norrbotten-handel",
+    "description": "Ambiguous Swedish handel (trade) in Norrbotten — must not collapse to construction SNI.",
+    "tier": "blind",
+    "fixture": "diverse",
+    "query": {
+      "objectType": "company",
+      "industry": { "query": "handel" },
+      "geography": { "type": "county", "value": "Norrbotten" },
+      "maxRows": 25
+    },
+    "mock": { "count": 15 },
+    "expect": {
+      "objectType": "company",
+      "layout": "je",
+      "geographyCategoryContains": "sateslan",
+      "industryMustIncludeCodes": ["G"],
+      "industryMustNotIncludeNoise": ["41", "42", "43", "F"],
+      "compileOk": true,
+      "fetchOutcome": "success",
+      "minToolCallsMax": 2
+    }
+  },
+  {
+    "id": "blind-exact-employees-10-19",
+    "description": "Exact SCB employee band 10–19 (not the 10–15 golden approximation).",
+    "tier": "blind",
+    "fixture": "diverse",
+    "query": {
+      "objectType": "company",
+      "industry": { "query": "41", "level": 2 },
+      "geography": { "type": "county", "value": "Jämtland" },
+      "employees": { "min": 10, "max": 19 },
+      "maxRows": 25
+    },
+    "mock": { "count": 4 },
+    "expect": {
+      "objectType": "company",
+      "layout": "je",
+      "geographyCategoryContains": "sateslan",
+      "industryMustIncludeCodes": ["41"],
+      "employeeRelation": "exact",
+      "forbidFalseExact": true,
+      "compileOk": true,
+      "fetchOutcome": "success",
+      "minToolCallsMax": 2
+    }
+  },
+  {
+    "id": "blind-superset-employees-8-12",
+    "description": "Inexact headcount 8–12 spans SCB 5–9 and 10–19 → superset, never silent exact.",
+    "tier": "blind",
+    "fixture": "diverse",
+    "query": {
+      "objectType": "workplace",
+      "geography": { "type": "municipality", "value": "Malmö" },
+      "industry": { "query": "restaurang" },
+      "employees": { "min": 8, "max": 12 },
+      "maxRows": 25
+    },
+    "mock": { "count": 5 },
+    "expect": {
+      "objectType": "workplace",
+      "layout": "ae",
+      "geographyCategoryContains": "kommun",
+      "employeeRelation": "superset",
+      "forbidFalseExact": true,
+      "compileOk": true,
+      "fetchOutcome": "success",
+      "minToolCallsMax": 2
+    }
+  },
+  {
+    "id": "blind-subset-employees-5-200",
+    "description": "Requested 5–200 is wider than available SCB classes through 199 → subset.",
+    "tier": "blind",
+    "fixture": "diverse",
+    "query": {
+      "objectType": "company",
+      "geography": { "type": "county", "value": "Gävleborg" },
+      "industry": { "query": "dataprogrammering" },
+      "employees": { "min": 5, "max": 200 },
+      "maxRows": 25
+    },
+    "mock": { "count": 12 },
+    "expect": {
+      "objectType": "company",
+      "layout": "je",
+      "employeeRelation": "subset",
+      "forbidFalseExact": true,
+      "compileOk": true,
+      "fetchOutcome": "success",
+      "minToolCallsMax": 2
+    }
+  },
+  {
+    "id": "blind-open-employees-min-50",
+    "description": "Open-ended min 50 (no max) vs classes 50–199 → subset of requested ∞.",
+    "tier": "blind",
+    "fixture": "diverse",
+    "query": {
+      "objectType": "company",
+      "geography": { "type": "county", "value": "Stockholm" },
+      "industry": { "query": "konsult" },
+      "employees": { "min": 50 },
+      "maxRows": 25
+    },
+    "mock": { "count": 7 },
+    "expect": {
+      "objectType": "company",
+      "layout": "je",
+      "employeeRelation": "subset",
+      "forbidFalseExact": true,
+      "compileOk": true,
+      "fetchOutcome": "success",
+      "minToolCallsMax": 2
+    }
+  },
+  {
+    "id": "blind-unrepresentable-employees",
+    "description": "5000–8000 employees has no overlapping SCB size class → unrepresentable, not a wrong code.",
+    "tier": "blind",
+    "fixture": "diverse",
+    "query": {
+      "objectType": "company",
+      "geography": { "type": "county", "value": "Jämtland" },
+      "employees": { "min": 5000, "max": 8000 }
+    },
+    "expect": {
+      "objectType": "company",
+      "layout": "je",
+      "employeeRelation": "unrepresentable",
+      "forbidFalseExact": true,
+      "compileOk": false,
+      "fetchOutcome": "compile_fail",
+      "unresolvedConstraint": "employees",
+      "minToolCallsMax": 2
+    }
+  },
+  {
+    "id": "blind-unresolved-narnia",
+    "description": "Nonsense county Narnia must be unresolved/unrepresentable, not a guessed län-kod.",
+    "tier": "blind",
+    "fixture": "diverse",
+    "query": {
+      "objectType": "company",
+      "geography": { "type": "county", "value": "Narnia" },
+      "industry": { "query": "bygg" }
+    },
+    "expect": {
+      "objectType": "company",
+      "layout": "je",
+      "compileOk": false,
+      "fetchOutcome": "compile_fail",
+      "unresolvedConstraint": "geography",
+      "forbidFalseExact": true,
+      "minToolCallsMax": 2
+    }
+  },
+  {
+    "id": "blind-unresolved-industry-xyzzy",
+    "description": "Nonsense industry xyzzy-not-an-sni → unresolved, not a random SNI.",
+    "tier": "blind",
+    "fixture": "diverse",
+    "query": {
+      "objectType": "workplace",
+      "industry": { "query": "xyzzy-not-an-sni" },
+      "geography": { "type": "county", "value": "Jämtland" }
+    },
+    "expect": {
+      "objectType": "workplace",
+      "layout": "ae",
+      "compileOk": false,
+      "fetchOutcome": "compile_fail",
+      "unresolvedConstraint": "industry",
+      "forbidFalseExact": true,
+      "minToolCallsMax": 2
+    }
+  },
+  {
+    "id": "blind-unresolved-atlantis",
+    "description": "Nonsense municipality Atlantis → unresolved geography.",
+    "tier": "blind",
+    "fixture": "diverse",
+    "query": {
+      "objectType": "workplace",
+      "geography": { "type": "municipality", "value": "Atlantis" },
+      "status": "active"
+    },
+    "expect": {
+      "objectType": "workplace",
+      "layout": "ae",
+      "compileOk": false,
+      "fetchOutcome": "compile_fail",
+      "unresolvedConstraint": "geography",
+      "forbidFalseExact": true,
+      "minToolCallsMax": 2
+    }
+  },
+  {
+    "id": "blind-too-broad-active",
+    "description": "Active companies in all of Sweden (status only) → QUERY_TOO_BROAD / >2000.",
+    "tier": "blind",
+    "live": true,
+    "fixture": "diverse",
+    "query": {
+      "objectType": "company",
+      "status": "active",
+      "maxRows": 50
+    },
+    "mock": { "count": 8432 },
+    "expect": {
+      "objectType": "company",
+      "layout": "je",
+      "compileOk": true,
+      "fetchOutcome": "too_broad",
+      "forbidFalseExact": true,
+      "minToolCallsMax": 2
+    }
+  },
+  {
+    "id": "blind-too-broad-status-any",
+    "description": "status=any with no geography/industry — unbounded population, too broad.",
+    "tier": "blind",
+    "fixture": "diverse",
+    "query": {
+      "objectType": "company",
+      "status": "any",
+      "maxRows": 50
+    },
+    "mock": { "count": 12000 },
+    "expect": {
+      "objectType": "company",
+      "layout": "je",
+      "compileOk": true,
+      "fetchOutcome": "too_broad",
+      "forbidFalseExact": true,
+      "minToolCallsMax": 2
+    }
+  },
+  {
+    "id": "blind-no-matches",
+    "description": "Valid compile (café in Luleå, 100–199 anställda) but empty population.",
+    "tier": "blind",
+    "fixture": "diverse",
+    "query": {
+      "objectType": "workplace",
+      "industry": { "query": "kafé" },
+      "geography": { "type": "municipality", "value": "Luleå" },
+      "employees": { "min": 100, "max": 199 },
+      "maxRows": 25
+    },
+    "mock": { "count": 0 },
+    "expect": {
+      "objectType": "workplace",
+      "layout": "ae",
+      "geographyCategoryContains": "kommun",
+      "employeeRelation": "exact",
+      "forbidFalseExact": true,
+      "compileOk": true,
+      "fetchOutcome": "no_matches",
+      "minToolCallsMax": 2
+    }
+  },
+  {
+    "id": "blind-status-any-jamtland",
+    "description": "status=any must omit Företagsstatus even with Jämtland + bygg filters.",
+    "tier": "blind",
+    "fixture": "construction",
+    "query": {
+      "objectType": "company",
+      "industry": { "query": "bygg" },
+      "geography": { "type": "county", "value": "Jämtland" },
+      "status": "any",
+      "maxRows": 25
+    },
+    "mock": { "count": 30 },
+    "expect": {
+      "objectType": "company",
+      "layout": "je",
+      "geographyCategoryContains": "sateslan",
+      "industryMustIncludeCodes": ["41", "42", "43"],
+      "compileOk": true,
+      "fetchOutcome": "success",
+      "minToolCallsMax": 2
+    }
+  },
+  {
+    "id": "blind-aregion-jamtland",
+    "description": "JE aregion slot must map to SätesARegion, not AE ARegion.",
+    "tier": "blind",
+    "fixture": "diverse",
+    "query": {
+      "objectType": "company",
+      "geography": { "type": "aregion", "value": "Jämtland" },
+      "industry": { "query": "restaurang" },
+      "maxRows": 25
+    },
+    "mock": { "count": 4 },
+    "expect": {
+      "objectType": "company",
+      "layout": "je",
+      "geographyCategoryContains": "satesaregion",
+      "compileOk": true,
+      "fetchOutcome": "success",
+      "minToolCallsMax": 2
+    }
+  },
+  {
+    "id": "blind-je-gavleborg-seat",
+    "description": "JE Gävleborg county is säte (Säteslän), never AE Län.",
+    "tier": "blind",
+    "fixture": "diverse",
+    "query": {
+      "objectType": "company",
+      "geography": { "type": "county", "value": "Gävleborg" },
+      "industry": { "query": "transport" },
+      "status": "active",
+      "maxRows": 25
+    },
+    "mock": { "count": 16 },
+    "expect": {
+      "objectType": "company",
+      "layout": "je",
+      "geographyCategoryContains": "sateslan",
+      "industryMustIncludeCodes": ["H"],
+      "compileOk": true,
+      "fetchOutcome": "success",
+      "minToolCallsMax": 2
+    }
+  },
+  {
+    "id": "blind-ae-gavleborg-location",
+    "description": "AE Gävleborg county is belägenhet (Län), never Säteslän.",
+    "tier": "blind",
+    "fixture": "diverse",
+    "query": {
+      "objectType": "workplace",
+      "geography": { "type": "county", "value": "Gävleborg" },
+      "industry": { "query": "detaljhandel" },
+      "status": "active",
+      "maxRows": 25
+    },
+    "mock": { "count": 19 },
+    "expect": {
+      "objectType": "workplace",
+      "layout": "ae",
+      "geographyCategoryContains": "lan",
+      "industryMustIncludeCodes": ["47"],
+      "compileOk": true,
+      "fetchOutcome": "success",
+      "minToolCallsMax": 2
+    }
+  },
+  {
+    "id": "blind-sni-41-level-2",
+    "description": "Explicit SNI 41 at level 2 — exact industry code, 2-siffrig bransch path.",
+    "tier": "blind",
+    "fixture": "construction",
+    "query": {
+      "objectType": "company",
+      "industry": { "query": "41", "level": 2 },
+      "geography": { "type": "county", "value": "Jämtland" },
+      "status": "active",
+      "maxRows": 25
+    },
+    "mock": { "count": 10 },
+    "expect": {
+      "objectType": "company",
+      "layout": "je",
+      "industryMustIncludeCodes": ["41"],
+      "industryMustNotIncludeNoise": ["22", "30", "46"],
+      "compileOk": true,
+      "fetchOutcome": "success",
+      "minToolCallsMax": 2
+    }
+  },
+  {
+    "id": "blind-ae-malmo-it-any",
+    "description": "AE Malmö + datakonsult, status any (no Arbetsställestatus filter).",
+    "tier": "blind",
+    "fixture": "diverse",
+    "query": {
+      "objectType": "workplace",
+      "industry": { "query": "datakonsult" },
+      "geography": { "type": "municipality", "value": "Malmö" },
+      "status": "any",
+      "employees": { "min": 5, "max": 9 },
+      "maxRows": 25
+    },
+    "mock": { "count": 2 },
+    "expect": {
+      "objectType": "workplace",
+      "layout": "ae",
+      "geographyCategoryContains": "kommun",
+      "industryMustIncludeCodes": ["62020"],
+      "industryMustNotIncludeNoise": ["41", "F"],
+      "employeeRelation": "exact",
+      "forbidFalseExact": true,
+      "compileOk": true,
+      "fetchOutcome": "success",
+      "minToolCallsMax": 2
+    }
+  },
+  {
+    "id": "blind-ambiguous-it",
+    "description": "Ambiguous query IT must be unresolved — not a substring hit (e.g. konditorier) or a guessed SNI.",
+    "tier": "blind",
+    "fixture": "diverse",
+    "query": {
+      "objectType": "company",
+      "industry": { "query": "IT" },
+      "geography": { "type": "county", "value": "Stockholm" },
+      "status": "any"
+    },
+    "expect": {
+      "objectType": "company",
+      "layout": "je",
+      "compileOk": false,
+      "fetchOutcome": "compile_fail",
+      "unresolvedConstraint": "industry",
+      "industryMustNotIncludeNoise": ["56102", "56101", "56", "I"],
+      "forbidFalseExact": true,
+      "minToolCallsMax": 2
+    }
+  }
+]
