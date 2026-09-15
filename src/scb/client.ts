@@ -1,8 +1,10 @@
 import { localRateLimited, mapHttpError, queryTooBroad, ScbError, unknownOperatorError, withCatalogHints } from "../domain/errors.js";
 import { createLogger, type LogLevel } from "../log.js";
 import { apiIdHeaders, createScbDispatcher, type ScbAuthConfig, validateCertConfig } from "./auth.js";
+import { classifyCategoryKind, type CategoryKind } from "../domain/catalog.js";
 import { TtlCache } from "./cache.js";
-import { lookupCategoryGroups, searchCodeTables, type CodeLookupResult } from "./code-lookup.js";
+import { lookupCategoryGroups, searchIndex, type CodeLookupResult } from "./code-lookup.js";
+import { buildDiscoveryIndex, type DiscoveryIndex } from "./discovery.js";
 import { countPath, endpointsFor, searchPath } from "./endpoints.js";
 import { identityInvalidErrorDetails, normalizeIdentityInFilters } from "./identity.js";
 import { isAllowedOperator } from "./operators.js";
@@ -87,6 +89,7 @@ export class ScbClient {
   private readonly dispatcher: unknown;
   private readonly bypassMetadataCache: boolean;
   private readonly metadataCache: TtlCache<unknown>;
+  private readonly discoveryCache: TtlCache<DiscoveryIndex>;
   private readonly countCache: TtlCache<number>;
 
   constructor(options: ScbClientOptions) {
@@ -97,7 +100,9 @@ export class ScbClient {
     this.log = createLogger(options.logLevel ?? "info");
     this.bypassMetadataCache =
       options.bypassMetadataCache ?? process.env.SCB_METADATA_CACHE_BYPASS === "true";
-    this.metadataCache = new TtlCache(options.metadataCacheTtlMs ?? METADATA_CACHE_TTL_MS);
+    const metadataTtl = options.metadataCacheTtlMs ?? METADATA_CACHE_TTL_MS;
+    this.metadataCache = new TtlCache(metadataTtl);
+    this.discoveryCache = new TtlCache(metadataTtl);
     this.countCache = new TtlCache(options.countCacheTtlMs ?? COUNT_CACHE_TTL_MS);
     if (options.skipCertLoad) {
       validateCertConfig(this.auth);
@@ -113,6 +118,9 @@ export class ScbClient {
     options: MetadataCallOptions = {},
   ): Promise<unknown> {
     const layout = layoutFor(objectType);
+    if (options.bypassCache === true || this.bypassMetadataCache) {
+      this.discoveryCache.clear();
+    }
     const path = includeCodeTables
       ? endpointsFor(layout).kategoriermedkodtabeller
       : endpointsFor(layout).koptakategorier;
@@ -130,6 +138,9 @@ export class ScbClient {
     options: MetadataCallOptions = {},
   ): Promise<unknown> {
     const layout = layoutFor(objectType);
+    if (options.bypassCache === true || this.bypassMetadataCache) {
+      this.discoveryCache.clear();
+    }
     const path = endpointsFor(layout).kodtabell;
     const key = `kodtabell:${layout}:${category}`;
     return parseListResponse(
@@ -198,26 +209,40 @@ export class ScbClient {
   async lookupCodes(
     objectType: ObjectType,
     query: string,
-    options: MetadataCallOptions & { category?: string | undefined; limit?: number | undefined } = {},
+    options: MetadataCallOptions & {
+      category?: string | undefined;
+      kind?: CategoryKind | undefined;
+      parentCode?: string | undefined;
+      limit?: number | undefined;
+    } = {},
+  ): Promise<CodeLookupResult> {
+    const kind = options.kind ?? (options.parentCode && !options.category ? "industry" : undefined);
+    if (!options.category && !kind && query.trim()) {
+      return this.lookupCodesIncremental(objectType, query, options);
+    }
+    const index = await this.getDiscoveryIndex(objectType, options, kind, options.category);
+    return searchIndex(index, query, {
+      kind: options.kind ?? kind,
+      category: options.category,
+      parentCode: options.parentCode,
+      limit: options.limit,
+    });
+  }
+
+  private async lookupCodesIncremental(
+    objectType: ObjectType,
+    query: string,
+    options: MetadataCallOptions & { limit?: number | undefined },
   ): Promise<CodeLookupResult> {
     const categoriesRaw = await this.listCategories(objectType, false, options);
-    const groups = lookupCategoryGroups(categoriesRaw, options.category);
+    const groups = lookupCategoryGroups(categoriesRaw);
     const tables: Array<{ category: string; raw: unknown }> = [];
-    let last: CodeLookupResult = {
-      query,
-      objectType,
-      matches: [],
-      total: 0,
-      returned: 0,
-    };
+    let last: CodeLookupResult = { query, objectType, matches: [], total: 0, returned: 0 };
     for (const group of groups) {
       for (const category of group) {
         try {
           tables.push({ category, raw: await this.getCategoryValues(objectType, category, options) });
         } catch (error) {
-          if (options.category) {
-            throw error;
-          }
           if (error instanceof ScbError && error.code === "SCB_RATE_LIMITED") {
             if (last.matches.length > 0) {
               return last;
@@ -226,7 +251,7 @@ export class ScbClient {
           }
         }
       }
-      last = searchCodeTables(objectType, query, tables, options.limit);
+      last = searchIndex(buildDiscoveryIndex(objectType, tables), query, { limit: options.limit });
       if (last.matches.length > 0) {
         return last;
       }
@@ -240,6 +265,61 @@ export class ScbClient {
 
   cachedVariableNames(objectType: ObjectType): string[] | undefined {
     return this.cachedMetadataNames(`listVariables:${layoutFor(objectType)}:0`);
+  }
+
+  private async getDiscoveryIndex(
+    objectType: ObjectType,
+    options: MetadataCallOptions,
+    kind?: CategoryKind,
+    category?: string,
+  ): Promise<DiscoveryIndex> {
+    const skip = options.bypassCache === true || this.bypassMetadataCache;
+    const key = discoveryCacheKey(objectType, kind, category);
+    if (!skip) {
+      const cached = this.discoveryCache.get(key);
+      if (cached && this.cachedCategoryNames(objectType)) {
+        return cached;
+      }
+    } else {
+      this.discoveryCache.clear();
+    }
+    const index = buildDiscoveryIndex(objectType, await this.loadLookupTables(objectType, options, category, kind));
+    if (!skip) {
+      this.discoveryCache.set(key, index);
+    }
+    return index;
+  }
+
+  private async loadLookupTables(
+    objectType: ObjectType,
+    options: MetadataCallOptions,
+    specified?: string,
+    kind?: CategoryKind,
+  ): Promise<Array<{ category: string; raw: unknown }>> {
+    const categoriesRaw = await this.listCategories(objectType, false, options);
+    let groups = lookupCategoryGroups(categoriesRaw, specified);
+    if (kind && !specified) {
+      groups = groups.filter((group) => classifyCategoryKind(group[0] ?? "") === kind);
+    }
+    const tables: Array<{ category: string; raw: unknown }> = [];
+    for (const group of groups) {
+      for (const category of group) {
+        try {
+          tables.push({ category, raw: await this.getCategoryValues(objectType, category, options) });
+        } catch (error) {
+          if (specified) {
+            throw error;
+          }
+          if (error instanceof ScbError && error.code === "SCB_RATE_LIMITED") {
+            if (tables.length > 0) {
+              return tables;
+            }
+            throw error;
+          }
+        }
+      }
+    }
+    return tables;
   }
 
   private cachedMetadataNames(key: string): string[] | undefined {
@@ -490,6 +570,10 @@ function withSelectVariables(filters: ScbFilters, extra?: ScbFilters["variables"
 
 function countCacheKey(objectType: ObjectType, filters: ScbFilters): string {
   return `${layoutFor(objectType)}:${JSON.stringify(toScbQueryBody(filters, layoutFor(objectType)))}`;
+}
+
+function discoveryCacheKey(objectType: ObjectType, kind?: CategoryKind, category?: string): string {
+  return `discovery:${layoutFor(objectType)}:${kind ?? "*"}:${category ?? "*"}`;
 }
 
 function parseRetryAfterMs(header: string | null): number {

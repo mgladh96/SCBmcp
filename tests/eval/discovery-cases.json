@@ -1,0 +1,133 @@
+[
+  {
+    "id": "bygg",
+    "description": "Industry lexical search for bygg ranks metadata labels that contain bygg-stems.",
+    "objectType": "company",
+    "query": "bygg",
+    "kind": "industry",
+    "topK": 8,
+    "expect": {
+      "minHits": 1,
+      "filterReady": true,
+      "labelPattern": "bygg",
+      "forbidExactCodes": true
+    }
+  },
+  {
+    "id": "restaurang",
+    "description": "Restaurant labels from SCB metadata.",
+    "objectType": "company",
+    "query": "restaurang",
+    "kind": "industry",
+    "topK": 8,
+    "expect": {
+      "minHits": 1,
+      "filterReady": true,
+      "labelPattern": "restaurang|cafe|kaf[eé]|hotell"
+    }
+  },
+  {
+    "id": "transport",
+    "description": "Transport labels from SCB metadata.",
+    "objectType": "company",
+    "query": "transport",
+    "kind": "industry",
+    "topK": 8,
+    "expect": {
+      "minHits": 1,
+      "filterReady": true,
+      "labelPattern": "transport|magasin"
+    }
+  },
+  {
+    "id": "it",
+    "description": "IT expands to search terms only; hits come from metadata.",
+    "objectType": "company",
+    "query": "IT",
+    "kind": "industry",
+    "topK": 8,
+    "expect": {
+      "minHits": 1,
+      "filterReady": true,
+      "labelPattern": "data|information|kommunikation|konsult"
+    }
+  },
+  {
+    "id": "sni-code-41",
+    "description": "Explicit SNI code lookup is exact code match, not a language mapping.",
+    "objectType": "company",
+    "query": "41",
+    "kind": "industry",
+    "topK": 5,
+    "expect": {
+      "minHits": 1,
+      "filterReady": true,
+      "topCode": "41"
+    }
+  },
+  {
+    "id": "parent-children-F",
+    "description": "Empty query + parentCode F lists construction-section children from the index.",
+    "objectType": "company",
+    "query": "",
+    "kind": "industry",
+    "parentCode": "F",
+    "topK": 10,
+    "expect": {
+      "minHits": 1,
+      "filterReady": true,
+      "childrenOf": "F"
+    }
+  },
+  {
+    "id": "jamtland",
+    "description": "County label Jämtland from kodtabell.",
+    "objectType": "company",
+    "query": "Jämtland",
+    "kind": "geography",
+    "topK": 5,
+    "expect": {
+      "minHits": 1,
+      "filterReady": true,
+      "labelPattern": "j[äa]mtland"
+    }
+  },
+  {
+    "id": "lanlista",
+    "description": "List county codes via empty query + geography kind/category.",
+    "objectType": "workplace",
+    "query": "",
+    "kind": "geography",
+    "category": "Län",
+    "topK": 10,
+    "expect": {
+      "minHits": 3,
+      "filterReady": true
+    }
+  },
+  {
+    "id": "employee-size",
+    "description": "Employee size class 10-19 from kodtabell.",
+    "objectType": "company",
+    "query": "10-19",
+    "kind": "size",
+    "topK": 5,
+    "expect": {
+      "minHits": 1,
+      "filterReady": true,
+      "labelPattern": "10-19|anst"
+    }
+  },
+  {
+    "id": "unknown-term",
+    "description": "Unknown term yields empty or weak hits — no asserted wrong codes.",
+    "objectType": "company",
+    "query": "qxzzvqwnypklzz",
+    "kind": "industry",
+    "topK": 5,
+    "expect": {
+      "emptyOrWeak": true,
+      "filterReady": true
+    }
+  }
+]

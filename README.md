@@ -10,7 +10,7 @@ En agent kan:
 
 1. Hämta en kompakt schemasammanfattning för JE eller AE (`scb_schema_summary`)
 2. Kompilera StructuredQuery till SCB-filter (`scb_compile_query`) eller räkna+hämta (`scb_count_then_fetch`)
-3. Söka i cacheade kodtabeller (`scb_lookup_codes`) — t.ex. Gävleborg → Län/`21`
+3. Söka i cacheade kodtabeller (`scb_lookup_codes`) — discovery-first: filterklara träffar (category+code) från faktisk SCB-metadata, t.ex. Gävleborg → Län/`21`. Inga query→SNI-kod-mappningar.
 4. Dry-run:a ett rått filter (`scb_explain_query`) och se serialiserad SCB POST **utan** HTTP mot SCB
 5. Inspektera kategorier och variabler som det konfigurerade SCB-kontot får använda
 6. Hämta kodtabeller för en kategori (sökbar, trunkerad; full dump bara vid explicit begäran)
@@ -155,7 +155,7 @@ SCB-klientcertifikatet autentiserar den här processen **mot SCB**. En separat d
 | Verktyg | Syfte |
 | --- | --- |
 | `scb_schema_summary` | Kompakt katalog för `company` (JE) eller `workplace` (AE): kind, serialisering, motparter, operatorer, filtertips. Ingen SNI-dump. |
-| `scb_lookup_codes` | Sök i cacheade kodtabeller. `{ matches: [{ objectType, category, code, label, kind }] }`. |
+| `scb_lookup_codes` | Discovery i cacheade kodtabeller. `{ matches: [{ objectType, kind, category, code, label, level?, parentCode?, hasChildren?, score }] }`. Kopiera `category`+`code` (+ `branchLevel` = min(3, level) på Bransch) rakt in i count/search. |
 | `scb_filter_hints` | Frågeklass → rekommenderade kategorier/variabler/standardstatus (statisk tabell). |
 | `scb_list_categories` | Kategorier för `company` (JE) eller `workplace` (AE). Valfri `includeCodeTables`. Svar: `{ items, raw }` (även `categories` = raw). |
 | `scb_get_category_values` | Kodtabell för en SCB-kategori. Valfri `query` + `limit` (standard ~50). Svar: `{ total, returned, items }`. Full dump bara med `includeAll` eller `limit=0`. |
@@ -172,7 +172,7 @@ MCP-prompts (ingen extra SCB-trafik): `scb_explore_schema`, `scb_count_then_fetc
 
 ### Princip: agenten = användaren, SCBmcp = SCB
 
-LLM-agenten förstår användaren. **SCBmcp förstår SCB.** Agenten mappar naturligt språk till `StructuredQuery`. Servern kompilerar det till riktiga SCB-kategorier, koder och serialisering från metadata (plus en liten versionsmärkt synonymtabell). Servern tar **inte** emot `{ text: "..." }` för frågeförståelse och gissar **inte** `objectType`.
+LLM-agenten förstår användaren. **SCBmcp förstår SCB.** Agenten mappar naturligt språk till `StructuredQuery`. Servern kompilerar det till riktiga SCB-kategorier, koder och serialisering från metadata (plus en liten versionsmärkt synonymtabell som bara expanderar **söktérmer**, aldrig SNI-koder). Servern tar **inte** emot `{ text: "..." }` för frågeförståelse och gissar **inte** `objectType`.
 
 `objectType` är obligatorisk: `company` = JE, `workplace` = AE. Semantiska `fields` är id:n som `name`, `organizationNumber`, `municipality`, `employeeCount` — inte SCB-namn som `"OrgNr (10 siffror)"` eller `"SätesKommun"`. Mappingen ligger i `resolved.fields`.
 
@@ -192,7 +192,7 @@ Happy path: **högst två** MCP-anrop — valfritt `scb_compile_query`, sedan `s
 }
 ```
 
-- `industry` är **alltid** objekt `{ query, level? }`, aldrig en bar sträng. `level` är SNI-nivå; livekategorin **Bransch** kräver `Branschniva` 1–3 (bokstav→1, 2 siffror→2, 3+→3). Utelämnad `level` ger ändå en giltig POST. Svenska **"bygg" / "byggverksamhet"** mappar via en liten alias-tabell till bygg-SNI **41, 42, 43** (och avdelning **F** om den finns i metadata) — inte substringträffar som Byggplast, fartyg eller handel. Live JE saknar ofta sektion F; då används kategorin **`2-siffrig bransch *`** (samma väg som `{ query: "41", level: 2 }`) utan `Branschniva`. Coverage är `partial` för flera koder, `exact` för en entydig kodträff.
+- `industry` är **alltid** objekt `{ query, level? }`, aldrig en bar sträng. `level` är SNI-nivå; livekategorin **Bransch** kräver `Branschniva` 1–3 (bokstav→1, 2 siffror→2, 3+→3). Utelämnad `level` ger ändå en giltig POST från discovery-träffar. Kompilatorn använder samma metadata-sökning som `scb_lookup_codes` — **inga** query→SNI-kod-mappningar i koden. Språkalias (t.ex. bygg→byggverksamhet/byggnad) är bara extra söktérmer. Om 41/42/43 rankas högt kommer det från etiketter i kodtabellen, inte från en facit-lista. Coverage är `partial` för flera koder, `exact` för en entydig kod-/etikettträff. Livekategorin **`2-siffrig bransch *`** skickas utan `Branschniva`.
 - `scb_count_then_fetch` **skickar inte** `Finns`/`ArLikaMed` för att “välja” Namn/OrgNr — live JE `hamta` returnerar redan standardkolumner (`Företagsnamn`, `OrgNr`, `PeOrgNr`, `Säteskommun`, `Storleksklass` / `Stkl, kod`, `Reklam`). Semantiska fält mappar mot de nycklarna. Filterkategorier (Säteskommun, Anställda) förblir kategorier, inte `variabler`.
 - `employees` mappar till **Anställda** / **Storleksklass Anställda**, aldrig `Omsättningsklass*`. Etiketter med `tkr`/`mkr`/`kr` ignoreras. Begärt 10–15 mot klass 10–19 är **superset**, `exact: false`.
 - `status` default `active` (verksam, kod från kodtabellen). `any` utelämnar statusfilter.
@@ -382,7 +382,18 @@ Om count > 2 000 returnerar verktygen:
 
 Lokalt rate limit (10 / 10 s) **väntar inte tyst**. Agenten får `SCB_RATE_LIMITED` med `nextAction: "retry_same"` och `details.retryAfterMs`. HTTP 429 från SCB mappar samma kod. Loggar kan innehålla `waitedMs` (0 när anropet avvisas lokalt).
 
-Kategorier, variabler och kodtabeller cacheas i processen i flera timmar (SCB uppdaterar över natten). `bypassCache` på metadataverktygen eller `SCB_METADATA_CACHE_BYPASS=true` tvingar live-anrop. `scb_schema_summary` och `scb_lookup_codes` återanvänder samma cache.
+Kategorier, variabler och kodtabeller cacheas i processen i flera timmar (SCB uppdaterar över natten). `bypassCache` på metadataverktygen eller `SCB_METADATA_CACHE_BYPASS=true` tvingar live-anrop. `scb_schema_summary` och `scb_lookup_codes` återanvänder samma cache. Discovery-indexet (bakom `scb_lookup_codes`) har samma TTL och byggs om vid bypass.
+
+### Discovery-first (filterklara träffar)
+
+Kärnflödet är **Discovery → koder → count/search**. `scb_lookup_codes` söker i ett in-memory-index byggt från cacheade `listCategories` + `getCategoryValues` (lexikal BM25-lik ranking, ingen LLM, inga embeddings).
+
+- Varje träff har `category` + `code` (plus `kind`, `label`, `score`; SNI även `level`, `parentCode`, `hasChildren`) så agenten kan kopiera dem rakt in i filter.
+- På kategorin **Bransch** skicka `branchLevel = min(3, level)`.
+- `parentCode` + tom `query` listar SNI-barn från kodstrukturen + indexet.
+- **Inga** query→SCB-kod-mappningar. Nya rader i SCB-metadata blir sökbara utan kodändring.
+
+Eval (top-K relevans, inte kodliste-facit): `pnpm discovery-eval`.
 
 ## Köra tester
 
@@ -390,15 +401,16 @@ Kategorier, variabler och kodtabeller cacheas i processen i flera timmar (SCB up
 pnpm typecheck
 pnpm lint
 pnpm test
+pnpm discovery-eval
 pnpm golden-path
 pnpm blind-eval
 ```
 
 ### Feature freeze och blind eval
 
-Produktens MCP-verktyg är **frysta**. Lägg inte till nya verktyg eller förmågor. Nästa milstolpe mäter om StructuredQuery → `scb_compile_query` / `scb_count_then_fetch` generaliserar bortom gyllene vägen Jämtland/bygg. Agentens NL-parser är utanför scope — fallen är redan StructuredQuery-JSON.
+Produktens MCP-verktyg är **frysta**. Lägg inte till nya verktyg. Discovery-v1 sitter bakom befintliga `scb_lookup_codes` (ingen LLM, inga embeddings). Blind compile mot `industry.query: "bygg"` kan gå röd när query→41/42/43-mappningen är borta — det är förväntat; discovery-eval är milstolpen, inte compile-facit.
 
-`tests/eval/blind-cases.json` (~25 **blinda** fall + känd **golden**-baslinje, `tier: "blind"` | `"golden"`). Runner: `scripts/blind-eval.ts`.
+`tests/eval/blind-cases.json` (~25 **blinda** fall + känd **golden**-baslinje, `tier: "blind"` | `"golden"`). Runner: `scripts/blind-eval.ts`. Discovery-eval: `pnpm discovery-eval` (top-K relevans mot metadata, inte kodliste-orakel).
 
 ```bash
 pnpm blind-eval

@@ -21,7 +21,8 @@
     "verify:live": "tsx scripts/verify-live.ts",
     "mcp:smoke": "tsx scripts/mcp-smoke.ts",
     "golden-path": "tsx scripts/golden-path.ts",
-    "blind-eval": "tsx scripts/blind-eval.ts"
+    "blind-eval": "tsx scripts/blind-eval.ts",
+    "discovery-eval": "tsx scripts/discovery-eval.ts"
   },
   "keywords": [
     "mcp",

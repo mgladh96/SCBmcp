@@ -42,6 +42,16 @@ export function fold(value: string): string {
     .toLowerCase();
 }
 
+/** Word tokens with the same diacritic folding as `fold`, keeping boundaries. */
+export function tokenize(value: string): string[] {
+  return value
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/u)
+    .filter((token) => token.length > 0);
+}
+
 export function classifyCategoryKind(name: string): CategoryKind {
   const n = fold(name);
   if (n.includes("status")) {

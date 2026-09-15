@@ -1,10 +1,8 @@
 export {
   SEMANTIC_ALIAS_VERSION,
-  CONSTRUCTION_SNI_CODES,
-  CONSTRUCTION_SNI_DIVISIONS,
   expandIndustryAliases,
   expandPlaceAliases,
-  isConstructionIndustryQuery,
+  expandSearchTerms,
 } from "./aliases.js";
 export {
   isMonetaryLabel,

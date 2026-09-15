@@ -12,7 +12,7 @@ Happy path (≤2 verktyg):
 1. Valfritt scb_compile_query — dry-run, coverage (t.ex. anställda 10–15 mot klass 10–19 = superset, exact=false).
 2. scb_count_then_fetch med samma StructuredQuery. Räknar, hämtar om 1≤count≤2000, projicerar semantiska fält. coverage+resolved följer med.
 
-StructuredQuery: objectType; industry: { query, level? } (alltid objekt; "bygg" → SNI 41/42/43 eller avdelning F; Bransch kräver Branschniva 1–3 — 2-siffrig bransch * behöver den inte); geography: { type: county|municipality|aregion, value }; employees: { min?, max? } → Anställda/Storleksklass Anställda (aldrig Omsättningsklass; 10–15 mot 10–19 = superset, exact=false); status: active|any (default active); maxRows; fields: semantiska id:n (name, organizationNumber, municipality, employeeCount) — inte SCB-namn.
+StructuredQuery: objectType; industry: { query, level? } (alltid objekt; koder från discovery/scb_lookup_codes mot SCB-metadata, inte query→kod-tabell; Bransch kräver Branschniva 1–3 — 2-siffrig bransch * behöver den inte); geography: { type: county|municipality|aregion, value }; employees: { min?, max? } → Anställda/Storleksklass Anställda (aldrig Omsättningsklass; 10–15 mot 10–19 = superset, exact=false); status: active|any (default active); maxRows; fields: semantiska id:n (name, organizationNumber, municipality, employeeCount) — inte SCB-namn.
 
 Manuellt/avancerat (när du behöver råa SCB-filter):
 1. scb_schema_summary för rätt objectType. Namn MÅSTE komma därifrån eller listverktygen.
@@ -37,7 +37,7 @@ export function exploreSchemaPrompt(objectType: string): string {
   return `Utforska SCB-schemat för ${layout} innan du filtrerar.
 
 1. Anropa scb_schema_summary med objectType="${objectType}". Använd exakta namn från categories[].name / variables[].name.
-2. Anropa scb_lookup_codes för etiketter (Gävleborg, SNI-text, storleksklass). Dumpa inte SNI.
+2. Anropa scb_lookup_codes för etiketter (Gävleborg, SNI-text, storleksklass). Träffar är filterklara (category+code). Dumpa inte SNI.
 3. scb_get_category_values med query/limit om du behöver mer av en tabell. includeAll bara när tabellen är liten.
 4. Gissa inte namn. "Län" är AE; "Säteslän" är JE. "Bygg" i företagsnamn är inte SNI.
 5. Operatorer är SCB-enum (Innehaller, ArLikaMed, …), inte engelska Contains/Equals. branchLevel = Branschniva, bara på bransch.
