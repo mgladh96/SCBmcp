@@ -41,6 +41,11 @@ describe("MCP server instructions and prompts", () => {
     expect(instructions).toContain("Säteslän");
     expect(instructions).toContain("scb_query");
     expect(instructions).toContain("choose");
+    expect(instructions).toContain("impossible");
+    expect(instructions).toContain("industry.codes");
+    expect(instructions).toContain("{ text:");
+    expect(instructions).toContain("coverage");
+    expect(instructions).toContain("vardagstermer");
     expect(instructions).toContain("Agenten förstår användaren");
     expect(instructions).toContain("2000");
     expect(instructions).toContain("Innehaller");
@@ -51,6 +56,18 @@ describe("MCP server instructions and prompts", () => {
     expect(search?.description).toContain("Bygg");
     expect(search?.description).toContain("Säteslän");
     expect(search?.description).toContain("Innehaller");
+    const query = tools.tools.find((tool) => tool.name === "scb_query");
+    expect(query?.description).toContain('status: "ok"');
+    expect(query?.description).toContain('status: "choose"');
+    expect(query?.description).toContain('status: "impossible"');
+    expect(query?.description).toContain("industry.codes");
+    expect(query?.description).toContain("{ text:");
+    const discover = tools.tools.find((tool) => tool.name === "scb_discover");
+    expect(discover?.description).toContain("Utforskningsverktyg");
+    expect(discover?.description).toContain("scb_query");
+    const compile = tools.tools.find((tool) => tool.name === "scb_compile_query");
+    expect(compile?.description).toContain("dry-run");
+    expect(compile?.description).toContain("happy path");
   });
 
   it("registers schema summary, lookup, filter hints, and operators resource", async () => {
