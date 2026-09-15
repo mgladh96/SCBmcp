@@ -53,6 +53,7 @@ export const DIVERSE_INDUSTRY_ROWS: Array<{ code: string; label: string }> = [
   { code: "62", label: "Dataprogrammering, konsultverksamhet avseende informationsteknik" },
   { code: "70", label: "Verksamhet vid huvudkontor; konsultverksamhet" },
   { code: "41200", label: "Byggande av bostadshus" },
+  { code: "43120", label: "Mark- och grundarbeten för byggverksamhet" },
   { code: "47111", label: "Detaljhandel med livsmedel" },
   { code: "49410", label: "Vägtransport av gods" },
   { code: "56100", label: "Restauranger" },

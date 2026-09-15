@@ -118,6 +118,27 @@ describe("scb_query statuses", () => {
     expect(payload.candidates).toEqual([]);
   });
 
+  it("markentreprenad finds Mark- och grundarbeten / anläggnings labels (ok or choose)", async () => {
+    const handlers = constructionHandlers();
+    const result = await handlers.scb_query({
+      objectType: "workplace",
+      industry: { query: "markentreprenad" },
+      geography: { type: "municipality", value: "Sundsvall" },
+    });
+    expect(result.isError).toBeUndefined();
+    const payload = JSON.parse(result.content[0]?.text ?? "{}") as {
+      status: string;
+      resolved?: { industry?: { codes?: Array<{ code: string; label: string }> } };
+      candidates?: Array<{ code: string; label: string }>;
+    };
+    expect(payload.status === "ok" || payload.status === "choose").toBe(true);
+    const labels = [
+      ...(payload.resolved?.industry?.codes ?? []).map((item) => item.label),
+      ...(payload.candidates ?? []).map((item) => item.label),
+    ].join(" ");
+    expect(labels).toMatch(/mark- och grundarbeten|anläggnings/i);
+  });
+
   it("returns impossible for unrepresentable geography", async () => {
     const handlers = constructionHandlers();
     const result = await handlers.scb_query({
