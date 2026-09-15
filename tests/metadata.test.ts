@@ -26,6 +26,45 @@ describe("metadata envelope", () => {
     });
     expect(items[0]?.name).toBe("21");
   });
+
+  it("reads live Id_Kategori_AE / Id_Kategori_JE rows with no Kategori field", () => {
+    const items = extractMetadataItems({
+      KategoriGrupp: "KategoriAE",
+      HemTyp: "HemTagValAE",
+      Kategorier: [
+        { Id_Kategori_AE: "Län", TillaggsGrupp: "BasUtbud" },
+        { Id_Kategori_JE: "Företagsstatus", TillaggsGrupp: "BasUtbud" },
+      ],
+    });
+    expect(items.map((item) => item.name)).toEqual(["Län", "Företagsstatus"]);
+    expect(items.every((item) => item.name.length > 0)).toBe(true);
+  });
+
+  it("reads live Id_Variabel_* rows", () => {
+    expect(
+      extractMetadataItems({
+        Variabler: [
+          { Id_Variabel_JE: "Företagsnamn" },
+          { Id_Variabel_AE: "Benämning" },
+          { Id_Variabel: "PeOrgNr" },
+        ],
+      }).map((item) => item.name),
+    ).toEqual(["Företagsnamn", "Benämning", "PeOrgNr"]);
+  });
+
+  it("prefers Varde as kodtabell name over Text", () => {
+    const items = extractMetadataItems({
+      Varden: [{ Varde: "21", Text: "Gävleborg" }],
+    });
+    expect(items[0]?.name).toBe("21");
+  });
+
+  it("finds kodtabell rows under an unknown array key", () => {
+    const items = extractMetadataItems({
+      OkandNyckel: [{ Varde: "21", Text: "Gävleborg" }],
+    });
+    expect(items[0]?.name).toBe("21");
+  });
 });
 
 describe("SCB query payload", () => {

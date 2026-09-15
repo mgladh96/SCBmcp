@@ -46,6 +46,8 @@ export type MockCatalogSpec = {
   categories?: Record<"company" | "workplace", string[]>;
   variables?: Record<"company" | "workplace", string[]>;
   tables?: Record<string, Array<{ code: string; label: string }>>;
+  /** Live privateapi.scb.se uses Id_Kategori_* / Varde+Text instead of Kategori/Kod. */
+  shape?: "legacy" | "live";
 };
 
 export function catalogFetch(spec: MockCatalogSpec): FetchLike {
@@ -80,18 +82,16 @@ export function catalogFetch(spec: MockCatalogSpec): FetchLike {
     ],
   };
 
+  const live = spec.shape === "live";
+
   return async (url, init) => {
     const path = new URL(url).pathname;
     const objectType = path.includes("/ae/") ? "workplace" : "company";
     if (path.includes("koptakategorier")) {
-      return jsonResponse(200, {
-        Kategorier: categories[objectType].map((name) => ({ Kategori: name })),
-      });
+      return jsonResponse(200, categoryListPayload(objectType, categories[objectType], live));
     }
     if (path.includes("koptavariabler") || path.endsWith("/variabler")) {
-      return jsonResponse(200, {
-        Variabler: variables[objectType].map((name) => ({ Variabel: name })),
-      });
+      return jsonResponse(200, variableListPayload(objectType, variables[objectType], live));
     }
     if (path.includes("kodtabell")) {
       const body = init.body ? (JSON.parse(init.body) as { Kategori?: string }) : {};
@@ -106,10 +106,48 @@ export function catalogFetch(spec: MockCatalogSpec): FetchLike {
       if (!rows) {
         return jsonResponse(400, { message: "Okänd kategori" });
       }
-      return jsonResponse(200, {
-        Koder: rows.map((row) => ({ Kod: row.code, Text: row.label })),
-      });
+      return jsonResponse(
+        200,
+        live
+          ? { Varden: rows.map((row) => ({ Varde: row.code, Text: row.label })) }
+          : { Koder: rows.map((row) => ({ Kod: row.code, Text: row.label })) },
+      );
     }
     return jsonResponse(200, []);
   };
+}
+
+function categoryListPayload(
+  objectType: "company" | "workplace",
+  names: string[],
+  live: boolean,
+): Record<string, unknown> {
+  if (!live) {
+    return { Kategorier: names.map((name) => ({ Kategori: name })) };
+  }
+  return {
+    KategoriGrupp: objectType === "workplace" ? "KategoriAE" : "KategoriJE",
+    HemTyp: objectType === "workplace" ? "HemTagValAE" : "HemTagValJE",
+    Kategorier: names.map((name) => {
+      const jeName =
+        name === "Företagsstatus" ||
+        name === "Registreringsstatus" ||
+        name.startsWith("Sätes");
+      const key =
+        objectType === "company" || jeName ? "Id_Kategori_JE" : "Id_Kategori_AE";
+      return { [key]: name, TillaggsGrupp: "BasUtbud" };
+    }),
+  };
+}
+
+function variableListPayload(
+  objectType: "company" | "workplace",
+  names: string[],
+  live: boolean,
+): Record<string, unknown> {
+  if (!live) {
+    return { Variabler: names.map((name) => ({ Variabel: name })) };
+  }
+  const key = objectType === "workplace" ? "Id_Variabel_AE" : "Id_Variabel_JE";
+  return { Variabler: names.map((name) => ({ [key]: name })) };
 }

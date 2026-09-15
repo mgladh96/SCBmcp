@@ -15,7 +15,7 @@ Använd category-namnet från scb_schema_summary / scb_list_categories (exakt st
 Valfritt query filtrerar på kod/etikett (t.ex. Gävleborg). Standard limit ~50. Full dump bara med includeAll=true eller limit=0 — använd inte för SNI.
 
 Anti-mönster:
-- Skicka inte svenska etiketter ("Gävleborg", "aktiv") som category. Category är t.ex. Län eller Företagsstatus; koden är items[].name/Kod.
+- Skicka inte svenska etiketter ("Gävleborg", "aktiv") som category. Category är t.ex. Län eller Företagsstatus; koden är items[].name (live: `Varde`, äldre: `Kod`).
 - Namn som innehåller "Bygg" är inte SNI — sök med scb_lookup_codes.
 - Vid SCB_UNKNOWN_CATEGORY: nearestNames + scb_schema_summary.`;
 

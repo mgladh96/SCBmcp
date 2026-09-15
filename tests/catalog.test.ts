@@ -50,6 +50,14 @@ describe("code matching", () => {
     expect(codeRowMatches(rows[0]!, "Gävleborg")).toBeGreaterThan(0);
     expect(codeRowMatches(rows[1]!, "Gävleborg")).toBe(0);
   });
+
+  it("uses Varde as code and Text as label on live kodtabell rows", () => {
+    const rows = extractCodeRows({
+      Varden: [{ Varde: "21", Text: "Gävleborg" }],
+    });
+    expect(rows[0]).toEqual({ code: "21", label: "Gävleborg" });
+    expect(rows[0]?.code).not.toBe("Gävleborg");
+  });
 });
 
 describe("schema summary", () => {

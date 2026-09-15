@@ -187,6 +187,8 @@ Filterkontrakt (nära SCB, inte ett DSL för naturligt språk):
 
 Använd **kategori- och variabelnamn som SCB returnerar dem** från `scb_schema_summary` eller listverktygen (`items[].name`). Hårdkoda inte ett eget schema.
 
+Live `koptakategorier` (bekräftat mot privateapi.scb.se med mTLS) har **inga** fält `Kategori`/`Namn` på raderna. Namnet ligger i `Id_Kategori_JE` (JE) eller `Id_Kategori_AE` (AE); en AE-lista kan innehålla båda. Variabler kan använda `Id_Variabel_JE` / `Id_Variabel_AE` / `Id_Variabel`. Kodtabellrader är `{ "Varde": "21", "Text": "Gävleborg" }` — koden är `Varde`, etiketten är `Text`. `scb_lookup_codes` matchar etiketten och returnerar koden (`21`), inte etiketten som kod. Äldre nycklar (`Kategori`, `Variabel`, `Kod`, …) stöds fortfarande.
+
 ### Operatorer (allowlist)
 
 Variabelfilter accepterar bara dessa SCB-operatorer (svenska namn, inte `Contains`/`Equals`):
