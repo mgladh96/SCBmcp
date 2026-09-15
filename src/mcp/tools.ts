@@ -8,6 +8,7 @@ import { identityInvalidErrorDetails, normalizeIdentityInFilters } from "../scb/
 import { SCB_OPERATOR_NAMES } from "../scb/operators.js";
 import { toMetadataEnvelope, truncateMetadataItems } from "../scb/payload.js";
 import { projectSearchResults } from "../scb/projection.js";
+import { discoverCodes } from "../scb/code-lookup.js";
 import { compileStructuredQuery, countThenFetch } from "../scb/compile/index.js";
 import { compileQueryInputSchema, countThenFetchInputSchema } from "../scb/compile/schema.js";
 import {
@@ -493,7 +494,7 @@ export function createToolHandlers(client: ScbClient, log = createLogger()) {
       }
       const started = Date.now();
       try {
-        const result = await client.lookupCodes(parsed.data.objectType, parsed.data.query, {
+        const result = await discoverCodes(client, parsed.data.objectType, parsed.data.query, {
           category: parsed.data.category,
           kind: parsed.data.kind,
           parentCode: parsed.data.parentCode,

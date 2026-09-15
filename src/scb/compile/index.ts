@@ -12,13 +12,18 @@ export {
   rangeRelation,
   selectOverlappingBands,
 } from "./bands.js";
+export { compileStructuredQuery, sniLevel } from "./compile.js";
 export {
   BRANSCH_API_LEVEL_MAX,
+  BRANSCH_API_LEVEL_MIN,
+  INDUSTRY_CLUSTER_DOMINANT_SHARE,
+  INDUSTRY_CLUSTER_GAP_RATIO,
+  INDUSTRY_CLUSTER_MIN_SCORE,
+  INDUSTRY_CLUSTER_TOP_K,
+  branschLevelForCode,
   clampBranchLevel,
-  compileStructuredQuery,
-  selectIndustryCodes,
-  sniLevel,
-} from "./compile.js";
+  resolveIndustryCluster,
+} from "./industry.js";
 export {
   compileFailedError,
   countThenFetch,
@@ -59,5 +64,6 @@ export {
   type CompileResult,
   type CoverageEntry,
   type CoverageRelation,
+  type IndustryCandidate,
   type ResolvedMappings,
 } from "./types.js";

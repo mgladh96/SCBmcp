@@ -1,14 +1,20 @@
 /**
  * Golden-path benchmark for StructuredQuery → compile → count_then_fetch.
  *
- * Default: mocked live-shaped SCB metadata (CI-safe).
- * Optional live compile: SCB_LIVE_TESTS=true (requires cert; fetch still skipped).
+ * Default: mocked live-shaped SCB metadata (CI-safe, no cert).
+ * Compile industry uses the same discoverCodes motor as scb_lookup_codes.
+ *
+ * Live SCB is not invoked here. After merge, coordinators run:
+ *   SCB_LIVE_TESTS=true pnpm test:live
+ *   SCB_LIVE_TESTS=true pnpm verify:live
+ * those require an SCB .pfx (absent in CI).
  *
  * Happy path for agents: ≤2 MCP tools (scb_compile_query optional, scb_count_then_fetch required).
  */
 import { compileStructuredQuery, countThenFetch, structuredQuerySchema } from "../src/scb/compile/index.js";
 import { fold } from "../src/domain/catalog.js";
-import { catalogAndSearchFetch, createTestClient, liveConstructionCatalogSpec } from "../tests/helpers.js";
+import { catalogAndSearchFetch, createTestClient } from "../tests/helpers.js";
+import { diverseCatalogSpec } from "../tests/eval/catalog.js";
 import { LIVE_JE_SEARCH_ROW } from "../tests/fixtures/live-scb-metadata.js";
 
 const GOLDEN_QUERY = {
@@ -31,7 +37,7 @@ function assert(condition: unknown, message: string): asserts condition {
 async function main(): Promise<void> {
   const query = structuredQuerySchema.parse(GOLDEN_QUERY);
   const hamtaBodies: unknown[] = [];
-  const inner = catalogAndSearchFetch(liveConstructionCatalogSpec(), { count: 14, results: [GOLDEN_ROW] });
+  const inner = catalogAndSearchFetch(diverseCatalogSpec(), { count: 14, results: [GOLDEN_ROW] });
   const client = createTestClient(async (url, init) => {
     if (new URL(url).pathname.includes("hamta") && init.body) {
       hamtaBodies.push(JSON.parse(init.body));

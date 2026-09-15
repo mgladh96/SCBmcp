@@ -15,10 +15,21 @@ export type CoverageEntry = {
   message: string;
 };
 
+export type IndustryCandidate = {
+  category: string;
+  code: string;
+  label: string;
+  score?: number;
+  level?: number;
+  parentCode?: string;
+};
+
 export type UnresolvedConstraint = {
   constraint: CoverageConstraint;
   requested: unknown;
   reason: string;
+  /** Ranked discovery hits when industry (or similar) is ambiguous — not an applied filter. */
+  candidates?: IndustryCandidate[];
 };
 
 export type ResolvedCode = {

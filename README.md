@@ -192,7 +192,7 @@ Happy path: **högst två** MCP-anrop — valfritt `scb_compile_query`, sedan `s
 }
 ```
 
-- `industry` är **alltid** objekt `{ query, level? }`, aldrig en bar sträng. `level` är SNI-nivå; livekategorin **Bransch** kräver `Branschniva` 1–3 (bokstav→1, 2 siffror→2, 3+→3). Utelämnad `level` ger ändå en giltig POST från discovery-träffar. Kompilatorn använder samma metadata-sökning som `scb_lookup_codes` — **inga** query→SNI-kod-mappningar i koden. Språkalias (t.ex. bygg→byggverksamhet/byggnad) är bara extra söktérmer. Om 41/42/43 rankas högt kommer det från etiketter i kodtabellen, inte från en facit-lista. Coverage är `partial` för flera koder, `exact` för en entydig kod-/etikettträff. Livekategorin **`2-siffrig bransch *`** skickas utan `Branschniva`.
+- `industry` är **alltid** objekt `{ query, level? }`, aldrig en bar sträng. `level` är SNI-nivå; livekategorin **Bransch** kräver `Branschniva` 1–3 (bokstav→1, 2 siffror→2, 3+→3). Utelämnad `level` ger ändå en giltig POST från discovery när träffen är entydig. **`scb_compile_query` är en convenience-wrapper på samma `discoverCodes`-motor som `scb_lookup_codes`** — ingen parallell branschindexering och inga query→SNI-kod-mappningar. Språkalias (t.ex. bygg→byggverksamhet/byggnad) är bara extra söktérmer. Tydlig toppträff eller sammanhängande SNI-familj → filter (category + code + ev. `branchLevel`). Tvetydiga/brusiga discovery-träffar → `unresolved` + `candidates` (rankade discovery-hits), inte ett påhittat filter. Coverage är `exact` bara vid entydig kod- eller etikettträff, annars `partial`. Livekategorin **`2-siffrig bransch *`** skickas utan `Branschniva`.
 - `scb_count_then_fetch` **skickar inte** `Finns`/`ArLikaMed` för att “välja” Namn/OrgNr — live JE `hamta` returnerar redan standardkolumner (`Företagsnamn`, `OrgNr`, `PeOrgNr`, `Säteskommun`, `Storleksklass` / `Stkl, kod`, `Reklam`). Semantiska fält mappar mot de nycklarna. Filterkategorier (Säteskommun, Anställda) förblir kategorier, inte `variabler`.
 - `employees` mappar till **Anställda** / **Storleksklass Anställda**, aldrig `Omsättningsklass*`. Etiketter med `tkr`/`mkr`/`kr` ignoreras. Begärt 10–15 mot klass 10–19 är **superset**, `exact: false`.
 - `status` default `active` (verksam, kod från kodtabellen). `any` utelämnar statusfilter.
@@ -393,7 +393,21 @@ Kärnflödet är **Discovery → koder → count/search**. `scb_lookup_codes` s�
 - `parentCode` + tom `query` listar SNI-barn från kodstrukturen + indexet.
 - **Inga** query→SCB-kod-mappningar. Nya rader i SCB-metadata blir sökbara utan kodändring.
 
-Eval (top-K relevans, inte kodliste-facit): `pnpm discovery-eval`.
+Eval (top-K relevans, inte kodliste-facit): `pnpm discovery-eval`. Discovery-v1 är **fryst** — höj inte metriken med query→kod-specialfall.
+
+**Compile wrappar discovery.** `scb_compile_query` / industry-steget anropar `discoverCodes` (samma API som `scb_lookup_codes`). Heuristik: tydlig score-lucka, exact kod/etikett, eller dominant SNI-familj bland top-K → filter; annars `unresolved` + `candidates`. Anställd-band (`exact|superset|subset|partial|unrepresentable`) är separat och går inte via discovery.
+
+### Discovery-v1 kända felmoder (baslinje, fryst)
+
+Lägg inte till query→kod-specialfall för att “fixa” dessa:
+
+- `bank` → 0 träffar
+- Sektionsbokstav `F` saknas i vissa live JE-tabeller → 0 sektionshit
+- `handel` rankingbrus i live-metadata
+- `bygg` → båt-SNI (`30` Byggande av fartyg) nära `41` när sektion F saknas
+- `unk-xyzzy` falska positiva från etiketter med “andra” (stopword redan i discovery; residual accepteras)
+
+Compile täcker inte över dem: tvetydig discovery → `unresolved` + `candidates`.
 
 ## Köra tester
 
@@ -406,9 +420,19 @@ pnpm golden-path
 pnpm blind-eval
 ```
 
+`pnpm golden-path` är **mockad** live-formad metadata (CI-säkert, inget certifikat). Live mot privateapi.scb.se:
+
+```bash
+# kräver SCB .pfx + SCB_CERT_PATH / SCB_CERT_PASSWORD — körs inte i CI
+SCB_LIVE_TESTS=true pnpm test:live
+SCB_LIVE_TESTS=true pnpm verify:live
+```
+
+Saknas certifikat hoppas live-sviten över / fallerar på config. Live golden-path och blind live-E2E körs av koordinatör efter merge-klar PR.
+
 ### Feature freeze och blind eval
 
-Produktens MCP-verktyg är **frysta**. Lägg inte till nya verktyg. Discovery-v1 sitter bakom befintliga `scb_lookup_codes` (ingen LLM, inga embeddings). Blind compile mot `industry.query: "bygg"` kan gå röd när query→41/42/43-mappningen är borta — det är förväntat; discovery-eval är milstolpen, inte compile-facit.
+Produktens MCP-verktyg är **frysta**. Lägg inte till nya verktyg. Discovery-v1 sitter bakom befintliga `scb_lookup_codes` (ingen LLM, inga embeddings). `scb_compile_query` är en wrapper på samma motor — inte en parallell branschresolver. Blind compile mot kodliste-orakel (`industryMustIncludeCodes: ["41","42","43"]`) kan gå röd; det är förväntat. Discovery-eval är orörd milstolpe.
 
 `tests/eval/blind-cases.json` (~25 **blinda** fall + känd **golden**-baslinje, `tier: "blind"` | `"golden"`). Runner: `scripts/blind-eval.ts`. Discovery-eval: `pnpm discovery-eval` (top-K relevans mot metadata, inte kodliste-orakel).
 

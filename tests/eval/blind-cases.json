@@ -4,7 +4,7 @@
     "description": "Known baseline: JE seat in Jämtland, construction bygg, 10–15 employees (SCB class 10–19 = superset).",
     "tier": "golden",
     "live": true,
-    "fixture": "construction",
+    "fixture": "diverse",
     "query": {
       "objectType": "company",
       "industry": { "query": "bygg" },
