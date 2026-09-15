@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { fold } from "../src/domain/catalog.js";
 import {
+  compileOutcomePayload,
   compileStructuredQuery,
   expandIndustryAliases,
   fieldLookupNames,
@@ -11,6 +12,7 @@ import {
   pickIndustryCategory,
   pickSizeCategory,
   projectToSemanticFields,
+  QUERY_CHOOSE_CANDIDATE_LIMIT,
   rangeRelation,
   resolveIndustryCluster,
   selectVariablesForFetch,
@@ -18,6 +20,7 @@ import {
 } from "../src/scb/compile/index.js";
 import { catalogFetch, createTestClient, liveConstructionCatalogSpec } from "./helpers.js";
 import { LIVE_JE_SEARCH_ROW, LIVE_TWO_DIGIT_BRANSCH_CATEGORY } from "./fixtures/live-scb-metadata.js";
+import { fixtureCatalogArtifact } from "./eval/catalog.js";
 
 const GOLDEN_QUERY = {
   objectType: "company" as const,
@@ -391,6 +394,235 @@ describe("metadata-driven industry discovery (compile wraps shared search)", () 
     expect(selected.candidates.map((item) => item.code)).toEqual(["41", "30"]);
   });
 
+  it("narrow 5-digit lokalvård-style hit chooses broader structural parents from candidates", () => {
+    const selected = resolveIndustryCluster(
+      [
+        {
+          objectType: "company",
+          category: "Bransch",
+          code: "81210",
+          label: "Rengöring och städning av byggnader",
+          score: 400,
+          level: 5,
+          parentCode: "8121",
+        },
+        {
+          objectType: "company",
+          category: "Bransch",
+          code: "8121",
+          label: "Allmän städning av byggnader",
+          score: 180,
+          level: 4,
+          parentCode: "812",
+        },
+        {
+          objectType: "company",
+          category: "Bransch",
+          code: "812",
+          label: "Städtjänster",
+          score: 150,
+          level: 3,
+          parentCode: "81",
+        },
+        {
+          objectType: "company",
+          category: "Bransch",
+          code: "81",
+          label: "Fastighetsserviceverksamhet",
+          score: 120,
+          level: 2,
+          parentCode: "N",
+        },
+        {
+          objectType: "company",
+          category: "Bransch",
+          code: "81290",
+          label: "Övrig rengöring",
+          score: 90,
+          level: 5,
+          parentCode: "812",
+        },
+      ],
+      "lokalvård",
+    );
+    expect(selected.status).toBe("unresolved");
+    if (selected.status !== "unresolved") {
+      return;
+    }
+    const codes = selected.candidates.map((item) => item.code);
+    expect(codes).toContain("81210");
+    expect(codes).toEqual(expect.arrayContaining(["812", "81"]));
+    expect(codes).not.toContain("N");
+    expect(selected.candidates.length).toBeGreaterThan(1);
+    expect(selected.candidates.length).toBeLessThanOrEqual(QUERY_CHOOSE_CANDIDATE_LIMIT);
+    expect(selected.candidates.every((item) => item.category && item.code && item.label && item.why)).toBe(true);
+    expect(selected.candidates.find((item) => item.code === "81210")?.why).toMatch(/smal/i);
+    expect(selected.candidates.find((item) => item.code === "81")?.why).toMatch(/förälder/i);
+    expect(selected.reason).toMatch(/smal SNI-kod/i);
+  });
+
+  it("narrow 5-digit hit chooses parent supplied from catalog, not only close discovery hits", () => {
+    const selected = resolveIndustryCluster(
+      [
+        {
+          objectType: "company",
+          category: "Bransch",
+          code: "81210",
+          label: "Rengöring och städning av byggnader",
+          score: 400,
+          level: 5,
+          parentCode: "8121",
+        },
+      ],
+      "lokalvård",
+      undefined,
+      [
+        {
+          objectType: "company",
+          category: "Bransch",
+          code: "812",
+          label: "Städtjänster",
+          level: 3,
+          parentCode: "81",
+        },
+        {
+          objectType: "company",
+          category: "2-siffrig bransch 1",
+          code: "81",
+          label: "Fastighetsserviceverksamhet",
+          level: 2,
+          parentCode: "N",
+        },
+      ],
+    );
+    expect(selected.status).toBe("unresolved");
+    if (selected.status !== "unresolved") {
+      return;
+    }
+    expect(selected.candidates.map((item) => item.code)).toEqual(expect.arrayContaining(["81210", "812", "81"]));
+  });
+
+  it("lone 5-digit hit without a parent in candidates or catalog still resolves", () => {
+    const selected = resolveIndustryCluster(
+      [
+        {
+          objectType: "company",
+          category: "Bransch",
+          code: "81210",
+          label: "Rengöring och städning av byggnader",
+          score: 400,
+          level: 5,
+          parentCode: "8121",
+        },
+      ],
+      "lokalvård",
+    );
+    expect(selected.status).toBe("resolved");
+    if (selected.status !== "resolved") {
+      return;
+    }
+    expect(selected.codes.map((item) => item.code)).toEqual(["81210"]);
+    expect(selected.reason).toBe("score_gap");
+  });
+
+  it("clear 2-digit score-gap still resolves to ok", () => {
+    const selected = resolveIndustryCluster(
+      [
+        {
+          objectType: "company",
+          category: "Bransch",
+          code: "81",
+          label: "Fastighetsserviceverksamhet",
+          score: 400,
+          level: 2,
+          parentCode: "N",
+        },
+        {
+          objectType: "company",
+          category: "Bransch",
+          code: "812",
+          label: "Städtjänster",
+          score: 150,
+          level: 3,
+          parentCode: "81",
+        },
+      ],
+      "fastighetsservice",
+    );
+    expect(selected.status).toBe("resolved");
+    if (selected.status !== "resolved") {
+      return;
+    }
+    expect(selected.codes.map((item) => item.code)).toEqual(["81"]);
+    expect(selected.reason).toBe("score_gap");
+  });
+
+  it("exact SNI code keeps the narrow hit even when a parent is among candidates", () => {
+    const selected = resolveIndustryCluster(
+      [
+        {
+          objectType: "company",
+          category: "Bransch",
+          code: "81210",
+          label: "Rengöring och städning av byggnader",
+          score: 1000,
+          level: 5,
+          parentCode: "8121",
+        },
+        {
+          objectType: "company",
+          category: "Bransch",
+          code: "81",
+          label: "Fastighetsserviceverksamhet",
+          score: 120,
+          level: 2,
+          parentCode: "N",
+        },
+      ],
+      "81210",
+    );
+    expect(selected.status).toBe("resolved");
+    if (selected.status !== "resolved") {
+      return;
+    }
+    expect(selected.codes.map((item) => item.code)).toEqual(["81210"]);
+    expect(selected.exact).toBe(true);
+    expect(selected.reason).toBe("exact_code");
+  });
+
+  it("exact 5-digit label still resolves when a parent is among candidates", () => {
+    const selected = resolveIndustryCluster(
+      [
+        {
+          objectType: "company",
+          category: "Bransch",
+          code: "81210",
+          label: "Rengöring och städning av byggnader",
+          score: 850,
+          level: 5,
+          parentCode: "8121",
+        },
+        {
+          objectType: "company",
+          category: "Bransch",
+          code: "81",
+          label: "Fastighetsserviceverksamhet",
+          score: 120,
+          level: 2,
+          parentCode: "N",
+        },
+      ],
+      "Rengöring och städning av byggnader",
+    );
+    expect(selected.status).toBe("resolved");
+    if (selected.status !== "resolved") {
+      return;
+    }
+    expect(selected.codes.map((item) => item.code)).toEqual(["81210"]);
+    expect(selected.exact).toBe(true);
+    expect(selected.reason).toBe("exact_label");
+  });
+
   it("industry resolution calls discoverCodes/lookupCodes, not a parallel path", async () => {
     const client = liveClient();
     const spy = vi.spyOn(client, "lookupCodes");
@@ -490,6 +722,63 @@ describe("metadata-driven industry discovery (compile wraps shared search)", () 
     expect(unresolved?.candidates?.some((item) => item.code === "41")).toBe(true);
     expect(unresolved?.candidates?.some((item) => item.code === "30")).toBe(true);
     expect(compiled.filters.categories.some((item) => fold(item.category).includes("bransch"))).toBe(false);
+  });
+
+  it("compile offers choose with catalog parent when discovery only returns a 5-digit hit", async () => {
+    const client = createTestClient(catalogFetch({ shape: "live" }), { offlineCatalog: fixtureCatalogArtifact() });
+    const originalLookup = client.lookupCodes.bind(client);
+    vi.spyOn(client, "lookupCodes").mockImplementation(async (objectType, query, options) => {
+      if (options?.kind === "industry") {
+        return {
+          query,
+          objectType,
+          matches: [
+            {
+              objectType,
+              category: "Bransch",
+              code: "81210",
+              label: "Rengöring och städning av byggnader",
+              score: 400,
+              level: 5,
+              parentCode: "8121",
+              kind: "industry",
+            },
+          ],
+          total: 1,
+          returned: 1,
+        };
+      }
+      return originalLookup(objectType, query, options);
+    });
+    const compiled = await compileStructuredQuery(
+      structuredQuerySchema.parse({
+        objectType: "company",
+        industry: { query: "lokalvård" },
+        geography: { type: "municipality", value: "Östersund" },
+        employees: { min: 5, max: 9 },
+        status: "any",
+      }),
+      client,
+    );
+    expect(compiled.ok).toBe(false);
+    expect(compiled.status).toBe("choose");
+    const codes = compiled.unresolved.find((item) => item.constraint === "industry")?.candidates?.map((item) => item.code) ?? [];
+    expect(codes).toContain("81210");
+    expect(codes.some((code) => code === "812" || code === "81" || code === "8121")).toBe(true);
+    expect(codes.length).toBeLessThanOrEqual(QUERY_CHOOSE_CANDIDATE_LIMIT);
+    expect(compiled.filters.categories.some((item) => fold(item.category).includes("bransch"))).toBe(false);
+    expect(compiled.resolved.geography?.codes.some((item) => item.code === "2380")).toBe(true);
+    const employees = compiled.coverage.find((item) => item.constraint === "employees");
+    expect(employees?.relation).toBe("exact");
+    expect(employees?.exact).toBe(true);
+    const payload = compileOutcomePayload(compiled);
+    expect(payload.status).toBe("choose");
+    expect(payload.candidates.length).toBeLessThanOrEqual(QUERY_CHOOSE_CANDIDATE_LIMIT);
+    expect(payload.candidates.find((item) => item.code === "81210")?.why).toMatch(/smal/i);
+    expect(payload.candidates.some((item) => (item.code === "812" || item.code === "81" || item.code === "8121") && /förälder/i.test(item.why ?? ""))).toBe(
+      true,
+    );
+    expect(payload.coverage.some((item) => item.constraint === "employees" && item.exact === true)).toBe(true);
   });
 
   it("prefers 2-siffrig category when level is 2", () => {
