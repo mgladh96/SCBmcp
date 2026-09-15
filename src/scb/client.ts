@@ -59,6 +59,14 @@ export type SearchResult = {
   countFromCache?: boolean;
 };
 
+/**
+ * Extra variables on hamta only (not rakna). Live JE omits Namn/OrgNr unless
+ * they appear in POST `variabler`.
+ */
+export type SearchCallOptions = {
+  selectVariables?: ScbFilters["variables"];
+};
+
 type RequestContext = {
   tool: string;
   body?: unknown;
@@ -162,12 +170,12 @@ export class ScbClient {
     return this.count("workplace", filters, "scb_count_workplaces");
   }
 
-  async searchCompanies(filters: ScbFilters): Promise<SearchResult> {
-    return this.search("company", filters, "scb_search_companies");
+  async searchCompanies(filters: ScbFilters, options: SearchCallOptions = {}): Promise<SearchResult> {
+    return this.search("company", filters, "scb_search_companies", options);
   }
 
-  async searchWorkplaces(filters: ScbFilters): Promise<SearchResult> {
-    return this.search("workplace", filters, "scb_search_workplaces");
+  async searchWorkplaces(filters: ScbFilters, options: SearchCallOptions = {}): Promise<SearchResult> {
+    return this.search("workplace", filters, "scb_search_workplaces", options);
   }
 
   async schemaSummary(objectType: ObjectType, options: MetadataCallOptions = {}): Promise<SchemaSummary> {
@@ -295,6 +303,7 @@ export class ScbClient {
     objectType: ObjectType,
     filters: ScbFilters,
     tool: string,
+    options: SearchCallOptions = {},
   ): Promise<SearchResult> {
     const countTool = objectType === "company" ? "scb_count_companies" : "scb_count_workplaces";
     const prepared = this.prepareFilters(objectType, filters);
@@ -314,14 +323,16 @@ export class ScbClient {
       this.log.info("SCB search skipped fetch", { tool, objectType, count, cacheHit: countFromCache });
       return { count, results: [], skippedFetch: true, countFromCache };
     }
+    const fetchFilters = withSelectVariables(prepared, options.selectVariables);
+    this.assertKnownOperators(fetchFilters);
     const layout = layoutFor(objectType);
     const path = searchPath(layout);
     const payload = await this.request("POST", path, {
       tool,
-      body: toScbQueryBody(prepared, layout),
+      body: toScbQueryBody(fetchFilters, layout),
       objectType,
-      submittedCategories: prepared.categories.map((item) => item.category),
-      submittedVariables: prepared.variables.map((item) => item.variable),
+      submittedCategories: fetchFilters.categories.map((item) => item.category),
+      submittedVariables: fetchFilters.variables.map((item) => item.variable),
     });
     try {
       const result: SearchResult = { count, results: parseSearchResponse(payload) };
@@ -458,6 +469,22 @@ export class ScbClient {
       throw this.enrichError(mapped, options.objectType);
     }
   }
+}
+
+function withSelectVariables(filters: ScbFilters, extra?: ScbFilters["variables"]): ScbFilters {
+  if (!extra || extra.length === 0) {
+    return filters;
+  }
+  const seen = new Set(filters.variables.map((item) => item.variable));
+  const variables = [...filters.variables];
+  for (const item of extra) {
+    if (seen.has(item.variable)) {
+      continue;
+    }
+    seen.add(item.variable);
+    variables.push(item);
+  }
+  return { categories: filters.categories, variables };
 }
 
 function countCacheKey(objectType: ObjectType, filters: ScbFilters): string {

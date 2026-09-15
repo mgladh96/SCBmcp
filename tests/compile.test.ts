@@ -2,15 +2,21 @@ import { describe, expect, it } from "vitest";
 import { fold } from "../src/domain/catalog.js";
 import {
   compileStructuredQuery,
+  CONSTRUCTION_SNI_DIVISIONS,
+  expandIndustryAliases,
   isMonetaryLabel,
   parseEmployeeBand,
   parseSwedishInt,
   pickGeographyCategory,
+  pickIndustryCategory,
   pickSizeCategory,
   rangeRelation,
+  selectIndustryCodes,
+  selectVariablesForFetch,
   structuredQuerySchema,
 } from "../src/scb/compile/index.js";
-import { catalogFetch, createTestClient } from "./helpers.js";
+import { catalogFetch, createTestClient, liveConstructionCatalogSpec } from "./helpers.js";
+import { LIVE_TWO_DIGIT_BRANSCH_CATEGORY } from "./fixtures/live-scb-metadata.js";
 
 const GOLDEN_QUERY = {
   objectType: "company" as const,
@@ -331,5 +337,122 @@ describe("compileStructuredQuery golden path (live-shaped metadata)", () => {
     expect(filter?.branchLevel).toBe(3);
     expect(filter?.values.every((code) => /^\d{5}$/u.test(code))).toBe(true);
     expect(compiled.warnings.some((item) => /klampades|Branschniva 3/u.test(item))).toBe(true);
+  });
+});
+
+describe("construction SNI alias layer", () => {
+  const NOISE = ["22", "30", "16", "23", "25", "28", "46"];
+
+  it("expands bygg to construction codes 41/42/43 and section F", () => {
+    const aliases = expandIndustryAliases("bygg");
+    expect(aliases).toEqual(expect.arrayContaining(["bygg", "Byggverksamhet", "F", "41", "42", "43"]));
+    expect(CONSTRUCTION_SNI_DIVISIONS).toEqual(["41", "42", "43"]);
+  });
+
+  it("selectIndustryCodes prefers 41/42/43 over plast/fartyg/handel", () => {
+    const selected = selectIndustryCodes(
+      [
+        { code: "22", label: "Tillverkning av byggplast" },
+        { code: "30", label: "Byggande av fartyg och båtar" },
+        { code: "41", label: "Byggande av hus" },
+        { code: "42", label: "Anläggningsarbeten" },
+        { code: "43", label: "Specialiserad bygg- och anläggningsverksamhet" },
+        { code: "46", label: "Partihandel med byggvaror" },
+      ],
+      undefined,
+      expandIndustryAliases("bygg"),
+    );
+    expect(selected.codes.map((item) => item.code).sort()).toEqual(["41", "42", "43"]);
+    expect(selected.branchLevel).toBe(2);
+  });
+
+  it("falls back from level 1 to 41/42/43 when section F is missing", () => {
+    const selected = selectIndustryCodes(
+      [
+        { code: "22", label: "Tillverkning av byggplast" },
+        { code: "41", label: "Byggande av hus" },
+        { code: "42", label: "Anläggningsarbeten" },
+        { code: "43", label: "Specialiserad byggverksamhet" },
+      ],
+      1,
+      expandIndustryAliases("bygg"),
+    );
+    expect(selected.codes.map((item) => item.code).sort()).toEqual(["41", "42", "43"]);
+    expect(selected.branchLevel).toBe(2);
+  });
+
+  it("compiles live-shaped bygg (no section F) to 2-siffrig 41/42/43", async () => {
+    const client = createTestClient(catalogFetch(liveConstructionCatalogSpec()));
+    const compiled = await compileStructuredQuery(
+      structuredQuerySchema.parse({ objectType: "company", industry: { query: "bygg" }, status: "any" }),
+      client,
+    );
+    expect(compiled.ok).toBe(true);
+    const filter = compiled.filters.categories.find((item) => fold(item.category).includes("bransch"));
+    expect(filter?.category).toBe(LIVE_TWO_DIGIT_BRANSCH_CATEGORY);
+    expect(filter?.branchLevel).toBeUndefined();
+    expect([...filter?.values ?? []].sort()).toEqual(["41", "42", "43"]);
+    expect(filter?.values.some((code) => NOISE.includes(code))).toBe(false);
+    const industry = compiled.coverage.find((item) => item.constraint === "industry");
+    expect(industry?.relation).toBe("partial");
+    expect(industry?.exact).toBe(false);
+  });
+
+  it("maps Byggverksamhet and level 1 to construction 41/42/43 when F is absent", async () => {
+    const client = createTestClient(catalogFetch(liveConstructionCatalogSpec()));
+    for (const industry of [{ query: "Byggverksamhet" }, { query: "bygg", level: 1 }] as const) {
+      const compiled = await compileStructuredQuery(
+        structuredQuerySchema.parse({ objectType: "company", industry, status: "any" }),
+        client,
+      );
+      expect(compiled.ok).toBe(true);
+      const filter = compiled.filters.categories.find((item) => fold(item.category).includes("bransch"));
+      expect([...filter?.values ?? []].sort()).toEqual(["41", "42", "43"]);
+      expect(filter?.values.some((code) => NOISE.includes(code))).toBe(false);
+    }
+  });
+
+  it("uses 2-siffrig bransch for query 41 level 2", async () => {
+    const client = createTestClient(catalogFetch(liveConstructionCatalogSpec()));
+    const compiled = await compileStructuredQuery(
+      structuredQuerySchema.parse({
+        objectType: "company",
+        industry: { query: "41", level: 2 },
+        status: "any",
+      }),
+      client,
+    );
+    const filter = compiled.filters.categories.find((item) => fold(item.category).includes("bransch"));
+    expect(filter?.category).toBe(LIVE_TWO_DIGIT_BRANSCH_CATEGORY);
+    expect(filter?.values).toEqual(["41"]);
+    expect(compiled.coverage.find((item) => item.constraint === "industry")?.relation).toBe("exact");
+  });
+
+  it("prefers 2-siffrig category when level is 2", () => {
+    expect(
+      pickIndustryCategory(["Bransch", LIVE_TWO_DIGIT_BRANSCH_CATEGORY, "Säteslän"], 2),
+    ).toBe(LIVE_TWO_DIGIT_BRANSCH_CATEGORY);
+  });
+});
+
+describe("selectVariablesForFetch", () => {
+  it("requests name/orgnr variables and skips category-only municipality/employees", () => {
+    const selected = selectVariablesForFetch(
+      {
+        name: ["Namn", "Firma"],
+        organizationNumber: ["OrgNr (10 siffror)", "OrgNr (12 siffror)"],
+        municipality: ["Säteskommun"],
+        employeeCount: ["Anställda"],
+      },
+      ["Namn", "Firma", "OrgNr (10 siffror)", "OrgNr (12 siffror)"],
+      ["Säteskommun", "Anställda", "Företagsstatus"],
+    );
+    expect(selected.map((item) => item.variable)).toEqual([
+      "Namn",
+      "Firma",
+      "OrgNr (10 siffror)",
+      "OrgNr (12 siffror)",
+    ]);
+    expect(selected.every((item) => item.operator === "Finns")).toBe(true);
   });
 });

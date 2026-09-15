@@ -19,7 +19,7 @@ export const industrySlotSchema = z
       .max(5)
       .optional()
       .describe(
-        "SNI-nivå. SCB Bransch kräver Branschniva 1–3 (bokstav→1, 2 siffror→2, 3+→3). Utelämnad: kompilatorn sätter giltig nivå och föredrar avdelning/2-siffrig framför många 5-siffriga substringträffar.",
+        "SNI-nivå. SCB Bransch kräver Branschniva 1–3 (bokstav→1, 2 siffror→2, 3+→3). Utelämnad: kompilatorn sätter giltig nivå. Svenska bygg/byggverksamhet → 41/42/43 (eller F). 2-siffrig bransch * skickas utan Branschniva.",
       ),
   })
   .describe("Alltid objekt { query, level? } — aldrig en bar sträng.");

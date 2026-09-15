@@ -51,6 +51,7 @@ describe("live SCB metadata field names", () => {
       "BesöksPostOrt",
     ]);
     expect(extractMetadataItems(LIVE_JE_VARIABLE_LIST).map((item) => item.name)).toEqual([
+      "Namn",
       "Företagsnamn",
       "Firma",
       "OrgNr (10 siffror)",

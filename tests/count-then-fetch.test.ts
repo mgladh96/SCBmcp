@@ -3,7 +3,8 @@ import { createLogger } from "../src/log.js";
 import { createToolHandlers } from "../src/mcp/tools.js";
 import { fold } from "../src/domain/catalog.js";
 import { MAX_RESULTS } from "../src/scb/types.js";
-import { catalogAndSearchFetch, catalogFetch, createTestClient, jsonResponse } from "./helpers.js";
+import { catalogAndSearchFetch, catalogFetch, createTestClient, jsonResponse, liveConstructionCatalogSpec } from "./helpers.js";
+import { LIVE_TWO_DIGIT_BRANSCH_CATEGORY } from "./fixtures/live-scb-metadata.js";
 
 const silent = createLogger("error");
 
@@ -18,11 +19,22 @@ const GOLDEN_QUERY = {
 
 const GOLDEN_ROW = {
   Företagsnamn: "Jämtlands Bygg AB",
+  Namn: "Jämtlands Bygg AB",
   "OrgNr (10 siffror)": "5560747569",
   "Säteskommun, text": "Östersund",
   "Säteskommun, kod": "2380",
   "Storleksklass Anställda, text": "10-19 anställda",
   "Storleksklass Anställda, kod": "4",
+  Reklam: "11",
+  Telefon: "should-not-leak",
+};
+
+const LIVE_FETCH_ROW = {
+  Namn: "Jämtlands Bygg AB",
+  "OrgNr (10 siffror)": "5560747569",
+  "Säteskommun, text": "Östersund",
+  "Säteskommun, kod": "2380",
+  Anställda: "10-19 anställda",
   Reklam: "11",
   Telefon: "should-not-leak",
 };
@@ -180,5 +192,88 @@ describe("scb_count_then_fetch", () => {
     expect(payload.coverage.length).toBeGreaterThan(0);
     expect(payload.results[0]?.name).toBe("Jämtlands Bygg AB");
     expect(payload.warnings.join(" ")).toMatch(/redan kompilerade/i);
+  });
+
+  it("omits Namn/OrgNr until hamta requests those variables; municipality still returns", async () => {
+    const catalog = catalogFetch({ shape: "live" });
+    const hamtaBodies: unknown[] = [];
+    const handlers = createToolHandlers(
+      createTestClient(async (url, init) => {
+        const path = new URL(url).pathname;
+        if (path.includes("rakna")) {
+          return jsonResponse(200, 1);
+        }
+        if (path.includes("hamta")) {
+          const body = init.body ? JSON.parse(init.body) : {};
+          hamtaBodies.push(body);
+          const requested = ((body as { variabler?: Array<{ Variabel?: string }> }).variabler ?? []).map(
+            (item) => item.Variabel ?? "",
+          );
+          const row: Record<string, unknown> = {
+            "Säteskommun, text": "Östersund",
+            Reklam: "11",
+          };
+          if (requested.some((name) => /namn|firma/i.test(name))) {
+            row.Namn = "Jämtlands Bygg AB";
+          }
+          if (requested.some((name) => /orgnr/i.test(name))) {
+            row["OrgNr (10 siffror)"] = "5560747569";
+          }
+          return jsonResponse(200, [row]);
+        }
+        return catalog(url, init);
+      }),
+      silent,
+    );
+
+    const result = await handlers.scb_count_then_fetch(GOLDEN_QUERY);
+    expect(result.isError).toBeUndefined();
+    const payload = JSON.parse(result.content[0]?.text ?? "{}") as {
+      results: Array<Record<string, unknown>>;
+      warnings: string[];
+    };
+    const hamta = hamtaBodies[0] as { variabler?: Array<{ Variabel: string; Operator: string }> };
+    expect(hamta.variabler?.some((item) => /namn|firma|företagsnamn/i.test(item.Variabel))).toBe(true);
+    expect(hamta.variabler?.some((item) => /orgnr/i.test(item.Variabel))).toBe(true);
+    expect(hamta.variabler?.every((item) => item.Operator === "Finns")).toBe(true);
+    expect(hamta.variabler?.some((item) => /sateskommun|anstalld/i.test(fold(item.Variabel)))).toBe(false);
+    expect(payload.results[0]).toMatchObject({
+      name: "Jämtlands Bygg AB",
+      organizationNumber: "5560747569",
+      municipality: "Östersund",
+      Reklam: "11",
+    });
+    expect(payload.warnings.join(" ")).toMatch(/Finns/);
+  });
+
+  it("golden bygg without section F uses 41/42/43 and projects Namn/OrgNr", async () => {
+    const handlers = createToolHandlers(
+      createTestClient(
+        catalogAndSearchFetch(liveConstructionCatalogSpec(), { count: 14, results: [LIVE_FETCH_ROW] }),
+      ),
+      silent,
+    );
+    const result = await handlers.scb_count_then_fetch(GOLDEN_QUERY);
+    expect(result.isError).toBeUndefined();
+    const payload = JSON.parse(result.content[0]?.text ?? "{}") as {
+      ok: boolean;
+      count: number;
+      filters: { categories: Array<{ category: string; values: string[]; branchLevel?: number }> };
+      coverage: Array<{ constraint: string; relation: string; exact: boolean }>;
+      results: Array<Record<string, unknown>>;
+    };
+    expect(payload.ok).toBe(true);
+    expect(payload.count).toBe(14);
+    const industry = payload.filters.categories.find((item) => fold(item.category).includes("bransch"));
+    expect(industry?.category).toBe(LIVE_TWO_DIGIT_BRANSCH_CATEGORY);
+    expect([...industry?.values ?? []].sort()).toEqual(["41", "42", "43"]);
+    expect(industry?.values.some((code) => ["22", "30", "46"].includes(code))).toBe(false);
+    expect(payload.coverage.find((item) => item.constraint === "industry")?.relation).toBe("partial");
+    expect(payload.results[0]).toMatchObject({
+      name: "Jämtlands Bygg AB",
+      organizationNumber: "5560747569",
+      municipality: "Östersund",
+      Reklam: "11",
+    });
   });
 });

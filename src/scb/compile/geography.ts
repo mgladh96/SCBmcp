@@ -71,36 +71,65 @@ export function pickStatusCategory(categoryNames: string[], objectType: ObjectTy
   );
 }
 
+export function isTwoDigitIndustryCategory(name: string): boolean {
+  const n = fold(name);
+  return n.includes("2siffrig") || n.includes("tvasiffrig") || n.includes("tvasiffer");
+}
+
+export function isSectionIndustryCategory(name: string): boolean {
+  const n = fold(name);
+  return n.includes("avdelning") || n.includes("1siffrig") || n.includes("sektion");
+}
+
+/**
+ * Industry categories in lookup/preference order.
+ * Live JE: `{ query: "41", level: 2 }` succeeds on `2-siffrig bransch *`.
+ * Generic `Bransch` is first when no level so section F can still win when present.
+ */
+export function rankIndustryCategories(categoryNames: string[], preferLevel?: number): string[] {
+  const industry = categoryNames.filter((name) => classifyCategoryKind(name) === "industry");
+  const twoDigit: string[] = [];
+  const section: string[] = [];
+  const generic: string[] = [];
+  const rest: string[] = [];
+  for (const name of industry) {
+    if (isTwoDigitIndustryCategory(name)) {
+      twoDigit.push(name);
+    } else if (isSectionIndustryCategory(name)) {
+      section.push(name);
+    } else if (fold(name) === "bransch" || (fold(name).includes("bransch") && !fold(name).includes("siffrig"))) {
+      generic.push(name);
+    } else {
+      rest.push(name);
+    }
+  }
+  if (preferLevel === 2) {
+    return uniqueKeepOrder([...twoDigit, ...generic, ...section, ...rest]);
+  }
+  if (preferLevel === 1) {
+    return uniqueKeepOrder([...section, ...generic, ...twoDigit, ...rest]);
+  }
+  return uniqueKeepOrder([...generic, ...twoDigit, ...section, ...rest]);
+}
+
 export function pickIndustryCategory(
   categoryNames: string[],
   preferLevel?: number,
 ): string | undefined {
-  const industry = categoryNames.filter((name) => classifyCategoryKind(name) === "industry");
-  if (preferLevel === 2) {
-    const twoDigit = industry.find((name) => {
-      const n = fold(name);
-      return n.includes("2siffrig") || n.includes("tvasiffrig") || n.includes("tvasiffer");
-    });
-    if (twoDigit) {
-      return twoDigit;
+  return rankIndustryCategories(categoryNames, preferLevel)[0];
+}
+
+function uniqueKeepOrder(values: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    if (seen.has(value)) {
+      continue;
     }
+    seen.add(value);
+    result.push(value);
   }
-  if (preferLevel === 1) {
-    const section = industry.find((name) => {
-      const n = fold(name);
-      return n.includes("avdelning") || n.includes("1siffrig") || n.includes("sektion");
-    });
-    if (section) {
-      return section;
-    }
-  }
-  return (
-    industry.find((name) => fold(name) === "bransch") ??
-    industry.find((name) => fold(name).includes("bransch") && !fold(name).includes("siffrig")) ??
-    industry.find((name) => fold(name).includes("bransch")) ??
-    industry.find((name) => fold(name).includes("sni")) ??
-    industry[0]
-  );
+  return result;
 }
 
 /** Live Omsättningsklass* is revenue, not headcount. */

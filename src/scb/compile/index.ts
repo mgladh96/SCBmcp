@@ -1,4 +1,11 @@
-export { SEMANTIC_ALIAS_VERSION, expandIndustryAliases, expandPlaceAliases } from "./aliases.js";
+export {
+  SEMANTIC_ALIAS_VERSION,
+  CONSTRUCTION_SNI_CODES,
+  CONSTRUCTION_SNI_DIVISIONS,
+  expandIndustryAliases,
+  expandPlaceAliases,
+  isConstructionIndustryQuery,
+} from "./aliases.js";
 export {
   isMonetaryLabel,
   parseEmployeeBand,
@@ -24,14 +31,17 @@ export {
   aliasRowToSemantic,
   projectToSemanticFields,
   resolveSemanticFields,
+  selectVariablesForFetch,
 } from "./fields.js";
 export {
   categoryNeedsBranchLevel,
   isRevenueCategory,
+  isTwoDigitIndustryCategory,
   pickGeographyCategory,
   pickIndustryCategory,
   pickSizeCategory,
   pickStatusCategory,
+  rankIndustryCategories,
 } from "./geography.js";
 export {
   compileQueryInputSchema,

@@ -1,5 +1,6 @@
 import { fold, resolveCatalogName } from "../../domain/catalog.js";
 import { fieldMatchesToken, isReklamField, projectSearchResults } from "../projection.js";
+import type { ScbFilters } from "../schemas.js";
 import type { ObjectType } from "../types.js";
 import { DEFAULT_SEMANTIC_FIELDS, type ResolvedFields } from "./types.js";
 
@@ -9,7 +10,7 @@ import { DEFAULT_SEMANTIC_FIELDS, type ResolvedFields } from "./types.js";
  */
 const FIELD_CANDIDATES: Record<string, { company: string[]; workplace: string[] }> = {
   name: {
-    company: ["Företagsnamn", "Firma", "Namn"],
+    company: ["Namn", "Företagsnamn", "Firma"],
     workplace: ["Benämning", "Företagsnamn", "Namn"],
   },
   organizationNumber: {
@@ -88,6 +89,45 @@ function resolveOneField(id: string, objectType: ObjectType, catalogNames: strin
 
 export function projectionTokens(fieldMap: ResolvedFields): string[] {
   return [...new Set(Object.values(fieldMap).flat())];
+}
+
+/**
+ * SCB search JE omits name/orgnr unless those catalog **variables** are in the
+ * POST `variabler` list. Categories used as filters (Säteskommun, Anställda)
+ * already come back on the row — do not send them as variables.
+ *
+ * `Finns` is arity 0: request the column without narrowing the population.
+ * Callers must attach these only on hamta, not rakna.
+ */
+export function selectVariablesForFetch(
+  fieldMap: ResolvedFields,
+  variableNames: string[],
+  categoryNames: string[],
+  existing: ScbFilters["variables"] = [],
+): ScbFilters["variables"] {
+  if (variableNames.length === 0) {
+    return [];
+  }
+  const variableByFold = new Map(variableNames.map((name) => [fold(name), name]));
+  const categoryFolds = new Set(categoryNames.map((name) => fold(name)));
+  const seen = new Set(existing.map((item) => fold(item.variable)));
+  const selected: ScbFilters["variables"] = [];
+
+  for (const names of Object.values(fieldMap)) {
+    for (const name of names) {
+      const catalogName = variableByFold.get(fold(name));
+      if (!catalogName) {
+        continue;
+      }
+      const folded = fold(catalogName);
+      if (seen.has(folded) || categoryFolds.has(folded)) {
+        continue;
+      }
+      seen.add(folded);
+      selected.push({ variable: catalogName, operator: "Finns" });
+    }
+  }
+  return selected;
 }
 
 export function pickSemanticValue(row: Record<string, unknown>, scbNames: string[]): unknown {

@@ -8,7 +8,8 @@
  */
 import { compileStructuredQuery, countThenFetch, structuredQuerySchema } from "../src/scb/compile/index.js";
 import { fold } from "../src/domain/catalog.js";
-import { catalogAndSearchFetch, createTestClient } from "../tests/helpers.js";
+import { catalogAndSearchFetch, createTestClient, liveConstructionCatalogSpec } from "../tests/helpers.js";
+import { LIVE_TWO_DIGIT_BRANSCH_CATEGORY } from "../tests/fixtures/live-scb-metadata.js";
 
 const GOLDEN_QUERY = {
   objectType: "company" as const,
@@ -20,12 +21,11 @@ const GOLDEN_QUERY = {
 };
 
 const GOLDEN_ROW = {
-  Företagsnamn: "Jämtlands Bygg AB",
+  Namn: "Jämtlands Bygg AB",
   "OrgNr (10 siffror)": "5560747569",
   "Säteskommun, text": "Östersund",
   "Säteskommun, kod": "2380",
-  "Storleksklass Anställda, text": "10-19 anställda",
-  "Storleksklass Anställda, kod": "4",
+  Anställda: "10-19 anställda",
   Reklam: "11",
   Telefon: "secret",
 };
@@ -39,7 +39,7 @@ function assert(condition: unknown, message: string): asserts condition {
 async function main(): Promise<void> {
   const query = structuredQuerySchema.parse(GOLDEN_QUERY);
   const client = createTestClient(
-    catalogAndSearchFetch({ shape: "live" }, { count: 1, results: [GOLDEN_ROW] }),
+    catalogAndSearchFetch(liveConstructionCatalogSpec(), { count: 14, results: [GOLDEN_ROW] }),
   );
 
   const compiled = await compileStructuredQuery(query, client);
@@ -57,12 +57,17 @@ async function main(): Promise<void> {
   const sizeCat = compiled.resolved.employees?.category ?? "";
   assert(!/omsattning/i.test(fold(sizeCat)), `employees mapped to revenue class ${sizeCat}`);
   const industry = compiled.filters.categories.find((item) => fold(item.category).includes("bransch"));
-  assert(industry?.branchLevel !== undefined, "Bransch requires Branschniva");
+  assert(industry?.category === LIVE_TWO_DIGIT_BRANSCH_CATEGORY, `expected 2-siffrig bransch, got ${industry?.category}`);
+  assert(industry?.branchLevel === undefined, "2-siffrig bransch encodes level in the name; do not send Branschniva");
+  const industryCodes = [...(industry?.values ?? [])].sort();
   assert(
-    (industry?.branchLevel ?? 0) >= 1 && (industry?.branchLevel ?? 0) <= 3,
-    `Branschniva out of 1–3: ${industry?.branchLevel}`,
+    industryCodes.join(",") === "41,42,43",
+    `expected construction 41/42/43, got ${industryCodes.join(",")}`,
   );
-  assert((industry?.values.length ?? 0) <= 8, `too many industry codes: ${industry?.values.join(",")}`);
+  assert(
+    !industryCodes.some((code) => ["22", "30", "16", "23", "25", "28", "46"].includes(code)),
+    `substring noise in industry codes: ${industryCodes.join(",")}`,
+  );
 
   const fetched = await countThenFetch(client, query);
   assert(fetched.coverage.some((item) => item.constraint === "employees"), "coverage dropped on fetch");
@@ -89,13 +94,14 @@ async function main(): Promise<void> {
         },
         layout: compiled.resolved.layout,
         geographyCategory: geo.category,
+        industryCategory: industry.category,
         industryCodes: compiled.resolved.industry?.codes.map((item) => item.code),
         industryBranchLevel: compiled.resolved.industry?.branchLevel,
         employeeCategory: compiled.resolved.employees?.category,
         employeeCoverage: emp,
         projectedKeys: fetched.projectedFields,
         aliasNote:
-          "Results use semantic keys (name, organizationNumber, municipality, employeeCount). resolved.fields maps them to live SCB names (e.g. Företagsnamn, OrgNr (10 siffror), Säteskommun).",
+          "Results use semantic keys (name, organizationNumber, municipality, employeeCount). resolved.fields maps them to live SCB names (Namn/Firma, OrgNr (10 siffror), Säteskommun). Fetch POSTs those variables (Finns) so JE returns them.",
       },
       null,
       2,
