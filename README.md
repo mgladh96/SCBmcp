@@ -391,7 +391,24 @@ pnpm typecheck
 pnpm lint
 pnpm test
 pnpm golden-path
+pnpm blind-eval
 ```
+
+### Feature freeze och blind eval
+
+Produktens MCP-verktyg är **frysta**. Lägg inte till nya verktyg eller förmågor. Nästa milstolpe mäter om StructuredQuery → `scb_compile_query` / `scb_count_then_fetch` generaliserar bortom gyllene vägen Jämtland/bygg. Agentens NL-parser är utanför scope — fallen är redan StructuredQuery-JSON.
+
+`tests/eval/blind-cases.json` (~25 **blinda** fall + känd **golden**-baslinje, `tier: "blind"` | `"golden"`). Runner: `scripts/blind-eval.ts`.
+
+```bash
+pnpm blind-eval
+# valfri live-delmängd (fall med live: true); hoppas över utan certifikat
+SCB_LIVE_TESTS=true pnpm blind-eval
+```
+
+Standard är **mockade** live-formade fixturer (CI-säkert). Happy path är fortfarande ≤2 MCP-anrop (`scb_count_then_fetch` ensamt, eller compile + fetch). Interna metadatauppslag räknas inte som agentverktyg.
+
+**False exact (kritiskt):** om coverage påstår `exact` men det tillämpade villkoret är bredare eller smalare än begärt (särskilt anställda, t.ex. 10–15 mot SCB 10–19) räknas fallet som `falseExact`. `pnpm blind-eval` avslutar med nollskild kod vid **något** falseExact eller om golden-fallet regressar. Blind E2E-% är milstolpemåttet — det finns ingen påhittad 90 %-grind i CI.
 
 ### Offline eval-svit
 
