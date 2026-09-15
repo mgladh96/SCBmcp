@@ -29,6 +29,7 @@ export {
 } from "./fetch.js";
 export {
   aliasRowToSemantic,
+  fieldLookupNames,
   projectToSemanticFields,
   resolveSemanticFields,
   selectVariablesForFetch,

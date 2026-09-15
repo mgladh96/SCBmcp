@@ -5,25 +5,26 @@ import type { ObjectType } from "../types.js";
 import { DEFAULT_SEMANTIC_FIELDS, type ResolvedFields } from "./types.js";
 
 /**
- * Candidate SCB names per semantic id. Resolved against live catalog (variables + categories).
- * Not a full SCB schema copy — only enough aliases to bind semantic slots.
+ * Candidate SCB names per semantic id. Catalog bind uses these; projection
+ * also matches live hamta keys (JE default columns: Företagsnamn, OrgNr,
+ * PeOrgNr, Säteskommun, Storleksklass / Stkl, kod — not filter Namn).
  */
 const FIELD_CANDIDATES: Record<string, { company: string[]; workplace: string[] }> = {
   name: {
-    company: ["Namn", "Företagsnamn", "Firma"],
+    company: ["Företagsnamn", "Firma", "Namn"],
     workplace: ["Benämning", "Företagsnamn", "Namn"],
   },
   organizationNumber: {
-    company: ["OrgNr (10 siffror)", "OrgNr (12 siffror)", "PeOrgNr", "OrgNr"],
-    workplace: ["OrgNr (12 siffror)", "OrgNr (10 siffror)", "PeOrgNr", "OrgNr"],
+    company: ["OrgNr", "PeOrgNr", "OrgNr (10 siffror)", "OrgNr (12 siffror)"],
+    workplace: ["OrgNr", "PeOrgNr", "OrgNr (12 siffror)", "OrgNr (10 siffror)"],
   },
   municipality: {
     company: ["Säteskommun", "SätesKommun"],
     workplace: ["Kommun"],
   },
   employeeCount: {
-    company: ["Storleksklass Anställda", "Anställda", "AnstSME"],
-    workplace: ["Storleksklass Anställda", "Anställda", "AnstSME"],
+    company: ["Storleksklass", "Stkl", "Storleksklass Anställda", "Anställda", "AnstSME"],
+    workplace: ["Storleksklass", "Stkl", "Storleksklass Anställda", "Anställda", "AnstSME"],
   },
   county: {
     company: ["Säteslän", "SätesLän"],
@@ -59,32 +60,67 @@ export function resolveSemanticFields(
 }
 
 function resolveOneField(id: string, objectType: ObjectType, catalogNames: string[]): string[] {
-  const spec = FIELD_CANDIDATES[id];
-  const candidates = spec
-    ? spec[objectType]
-    : [id];
-  const resolved: string[] = [];
+  const candidates = fieldCandidates(id, objectType);
+  const catalogHits: string[] = [];
   const seen = new Set<string>();
   for (const candidate of candidates) {
     const hit = resolveCatalogName([candidate], catalogNames);
-    if (!hit || seen.has(hit)) {
+    if (!hit || seen.has(fold(hit))) {
       continue;
     }
     if (catalogNames.length > 0 && !catalogNames.some((name) => fold(name) === fold(hit))) {
       continue;
     }
-    seen.add(hit);
-    resolved.push(hit);
+    seen.add(fold(hit));
+    catalogHits.push(hit);
   }
-  if (resolved.length === 0 && catalogNames.length > 0) {
+  if (catalogHits.length === 0 && catalogNames.length > 0) {
     const foldedId = fold(id);
     for (const name of catalogNames) {
       if (fold(name) === foldedId || fieldMatchesToken(name, id)) {
-        resolved.push(name);
+        if (seen.has(fold(name))) {
+          continue;
+        }
+        seen.add(fold(name));
+        catalogHits.push(name);
       }
     }
   }
-  return resolved;
+  if (catalogHits.length === 0) {
+    return [];
+  }
+  return fieldLookupNames(id, objectType, catalogHits);
+}
+
+function fieldCandidates(id: string, objectType: ObjectType): string[] {
+  const spec = FIELD_CANDIDATES[id];
+  return spec ? spec[objectType] : [id];
+}
+
+/**
+ * Live hamta keys plus catalog-bound names. Catalog may list Namn / OrgNr (10 siffror)
+ * while JE rows use Företagsnamn / OrgNr.
+ */
+export function fieldLookupNames(
+  id: string,
+  objectType: ObjectType,
+  resolvedNames: string[] = [],
+): string[] {
+  return uniqueNames([...fieldCandidates(id, objectType), ...resolvedNames]);
+}
+
+function uniqueNames(names: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const name of names) {
+    const folded = fold(name);
+    if (!folded || seen.has(folded)) {
+      continue;
+    }
+    seen.add(folded);
+    out.push(name);
+  }
+  return out;
 }
 
 export function projectionTokens(fieldMap: ResolvedFields): string[] {
@@ -92,42 +128,21 @@ export function projectionTokens(fieldMap: ResolvedFields): string[] {
 }
 
 /**
- * SCB search JE omits name/orgnr unless those catalog **variables** are in the
- * POST `variabler` list. Categories used as filters (Säteskommun, Anställda)
- * already come back on the row — do not send them as variables.
+ * Do not inject variables to "select" columns on hamta. Live JE (and AE) already
+ * returns a default set (Företagsnamn, OrgNr, Säteskommun, Storleksklass, …).
+ * Operator Finns on Namn/OrgNr is rejected: "Operatorn Finns kombinerad med
+ * variabeln Namn får ej användas." Same for ArLikaMed used as projection.
  *
- * `Finns` is arity 0: request the column without narrowing the population.
- * Callers must attach these only on hamta, not rakna.
+ * Kept as the fetch chokepoint so count_then_fetch cannot reintroduce illegal
+ * select operators. Real filter variables stay on compiled `filters.variables`.
  */
 export function selectVariablesForFetch(
-  fieldMap: ResolvedFields,
-  variableNames: string[],
-  categoryNames: string[],
-  existing: ScbFilters["variables"] = [],
+  _fieldMap?: ResolvedFields,
+  _variableNames?: string[],
+  _categoryNames?: string[],
+  _existing: ScbFilters["variables"] = [],
 ): ScbFilters["variables"] {
-  if (variableNames.length === 0) {
-    return [];
-  }
-  const variableByFold = new Map(variableNames.map((name) => [fold(name), name]));
-  const categoryFolds = new Set(categoryNames.map((name) => fold(name)));
-  const seen = new Set(existing.map((item) => fold(item.variable)));
-  const selected: ScbFilters["variables"] = [];
-
-  for (const names of Object.values(fieldMap)) {
-    for (const name of names) {
-      const catalogName = variableByFold.get(fold(name));
-      if (!catalogName) {
-        continue;
-      }
-      const folded = fold(catalogName);
-      if (seen.has(folded) || categoryFolds.has(folded)) {
-        continue;
-      }
-      seen.add(folded);
-      selected.push({ variable: catalogName, operator: "Finns" });
-    }
-  }
-  return selected;
+  return [];
 }
 
 export function pickSemanticValue(row: Record<string, unknown>, scbNames: string[]): unknown {
@@ -158,6 +173,7 @@ function keyPreference(key: string): number {
 export function aliasRowToSemantic(
   row: unknown,
   fieldMap: ResolvedFields,
+  objectType: ObjectType = "company",
 ): Record<string, unknown> {
   if (!row || typeof row !== "object" || Array.isArray(row)) {
     return {};
@@ -165,7 +181,7 @@ export function aliasRowToSemantic(
   const input = row as Record<string, unknown>;
   const out: Record<string, unknown> = {};
   for (const [semantic, names] of Object.entries(fieldMap)) {
-    const value = pickSemanticValue(input, names);
+    const value = pickSemanticValue(input, fieldLookupNames(semantic, objectType, names));
     if (value !== undefined) {
       out[semantic] = value;
     }
@@ -192,12 +208,18 @@ export function projectToSemanticFields(
   maxRows: number;
   reklamPreserved: boolean;
 } {
-  const tokens = projectionTokens(fieldMap);
+  const tokens = [
+    ...new Set(
+      Object.entries(fieldMap).flatMap(([id, names]) => fieldLookupNames(id, objectType, names)),
+    ),
+  ];
   const projected = projectSearchResults(results, objectType, {
     ...(tokens.length > 0 ? { fields: tokens } : {}),
     ...(maxRows !== undefined ? { maxRows } : {}),
   });
-  const aliased = projected.results.map((row) => aliasRowToSemantic(row, fieldMap));
+  const aliased = projected.results.map((row) =>
+    aliasRowToSemantic(row, fieldMap, objectType),
+  );
   const fieldNames = new Set<string>();
   for (const row of aliased) {
     for (const key of Object.keys(row)) {

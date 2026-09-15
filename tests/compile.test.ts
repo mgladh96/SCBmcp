@@ -4,19 +4,21 @@ import {
   compileStructuredQuery,
   CONSTRUCTION_SNI_DIVISIONS,
   expandIndustryAliases,
+  fieldLookupNames,
   isMonetaryLabel,
   parseEmployeeBand,
   parseSwedishInt,
   pickGeographyCategory,
   pickIndustryCategory,
   pickSizeCategory,
+  projectToSemanticFields,
   rangeRelation,
   selectIndustryCodes,
   selectVariablesForFetch,
   structuredQuerySchema,
 } from "../src/scb/compile/index.js";
 import { catalogFetch, createTestClient, liveConstructionCatalogSpec } from "./helpers.js";
-import { LIVE_TWO_DIGIT_BRANSCH_CATEGORY } from "./fixtures/live-scb-metadata.js";
+import { LIVE_JE_SEARCH_ROW, LIVE_TWO_DIGIT_BRANSCH_CATEGORY } from "./fixtures/live-scb-metadata.js";
 
 const GOLDEN_QUERY = {
   objectType: "company" as const,
@@ -195,7 +197,8 @@ describe("compileStructuredQuery golden path (live-shaped metadata)", () => {
       }),
       liveClient(),
     );
-    expect(company.resolved.fields.name).toContain("Företagsnamn");
+    expect(company.resolved.fields.name?.[0]).toBe("Företagsnamn");
+    expect(company.resolved.fields.organizationNumber?.[0]).toBe("OrgNr");
     expect(company.resolved.fields.municipality?.some((name) => fold(name).includes("sateskommun"))).toBe(true);
 
     const workplace = await compileStructuredQuery(
@@ -436,23 +439,46 @@ describe("construction SNI alias layer", () => {
 });
 
 describe("selectVariablesForFetch", () => {
-  it("requests name/orgnr variables and skips category-only municipality/employees", () => {
+  it("does not inject Finns or ArLikaMed to select name/orgnr columns", () => {
     const selected = selectVariablesForFetch(
       {
-        name: ["Namn", "Firma"],
-        organizationNumber: ["OrgNr (10 siffror)", "OrgNr (12 siffror)"],
+        name: ["Namn", "Firma", "Företagsnamn"],
+        organizationNumber: ["OrgNr (10 siffror)", "OrgNr"],
         municipality: ["Säteskommun"],
         employeeCount: ["Anställda"],
       },
       ["Namn", "Firma", "OrgNr (10 siffror)", "OrgNr (12 siffror)"],
       ["Säteskommun", "Anställda", "Företagsstatus"],
     );
-    expect(selected.map((item) => item.variable)).toEqual([
-      "Namn",
-      "Firma",
-      "OrgNr (10 siffror)",
-      "OrgNr (12 siffror)",
-    ]);
-    expect(selected.every((item) => item.operator === "Finns")).toBe(true);
+    expect(selected).toEqual([]);
+    expect(selected.some((item) => item.operator === "Finns" || item.operator === "ArLikaMed")).toBe(
+      false,
+    );
+  });
+});
+
+describe("live hamta projection aliases", () => {
+  it("maps Företagsnamn/OrgNr/Storleksklass when catalog bound Namn/OrgNr (10 siffror)", () => {
+    expect(fieldLookupNames("name", "company", ["Namn", "Firma"])).toEqual(
+      expect.arrayContaining(["Företagsnamn", "Firma", "Namn"]),
+    );
+    const projected = projectToSemanticFields(
+      [LIVE_JE_SEARCH_ROW],
+      "company",
+      {
+        name: ["Namn", "Firma"],
+        organizationNumber: ["OrgNr (10 siffror)"],
+        municipality: ["Säteskommun"],
+        employeeCount: ["Anställda"],
+      },
+    );
+    expect(projected.results[0]).toMatchObject({
+      name: "Jämtlands Bygg AB",
+      organizationNumber: "5560747569",
+      municipality: "Östersund",
+      employeeCount: "10-19 anställda",
+      Reklam: "11",
+    });
+    expect(projected.results[0]?.Telefon).toBeUndefined();
   });
 });

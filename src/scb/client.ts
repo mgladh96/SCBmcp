@@ -60,8 +60,9 @@ export type SearchResult = {
 };
 
 /**
- * Extra variables on hamta only (not rakna). Live JE omits Namn/OrgNr unless
- * they appear in POST `variabler`.
+ * Extra variables on hamta only (not rakna). For real filter predicates —
+ * not column projection. Live JE/AE hamta already returns default columns
+ * (Företagsnamn, OrgNr, …). Do not attach Finns/ArLikaMed to "select" Namn.
  */
 export type SearchCallOptions = {
   selectVariables?: ScbFilters["variables"];

@@ -4,7 +4,7 @@ import { createToolHandlers } from "../src/mcp/tools.js";
 import { fold } from "../src/domain/catalog.js";
 import { MAX_RESULTS } from "../src/scb/types.js";
 import { catalogAndSearchFetch, catalogFetch, createTestClient, jsonResponse, liveConstructionCatalogSpec } from "./helpers.js";
-import { LIVE_TWO_DIGIT_BRANSCH_CATEGORY } from "./fixtures/live-scb-metadata.js";
+import { LIVE_AE_SEARCH_ROW, LIVE_JE_SEARCH_ROW, LIVE_TWO_DIGIT_BRANSCH_CATEGORY } from "./fixtures/live-scb-metadata.js";
 
 const silent = createLogger("error");
 
@@ -17,27 +17,7 @@ const GOLDEN_QUERY = {
   fields: ["name", "organizationNumber", "municipality", "employeeCount"],
 };
 
-const GOLDEN_ROW = {
-  Företagsnamn: "Jämtlands Bygg AB",
-  Namn: "Jämtlands Bygg AB",
-  "OrgNr (10 siffror)": "5560747569",
-  "Säteskommun, text": "Östersund",
-  "Säteskommun, kod": "2380",
-  "Storleksklass Anställda, text": "10-19 anställda",
-  "Storleksklass Anställda, kod": "4",
-  Reklam: "11",
-  Telefon: "should-not-leak",
-};
-
-const LIVE_FETCH_ROW = {
-  Namn: "Jämtlands Bygg AB",
-  "OrgNr (10 siffror)": "5560747569",
-  "Säteskommun, text": "Östersund",
-  "Säteskommun, kod": "2380",
-  Anställda: "10-19 anställda",
-  Reklam: "11",
-  Telefon: "should-not-leak",
-};
+const GOLDEN_ROW = LIVE_JE_SEARCH_ROW;
 
 function goldenHandlers(count = 1, results: unknown[] = [GOLDEN_ROW]) {
   return createToolHandlers(
@@ -194,7 +174,7 @@ describe("scb_count_then_fetch", () => {
     expect(payload.warnings.join(" ")).toMatch(/redan kompilerade/i);
   });
 
-  it("omits Namn/OrgNr until hamta requests those variables; municipality still returns", async () => {
+  it("projects live hamta columns without injecting Finns/ArLikaMed", async () => {
     const catalog = catalogFetch({ shape: "live" });
     const hamtaBodies: unknown[] = [];
     const handlers = createToolHandlers(
@@ -204,22 +184,8 @@ describe("scb_count_then_fetch", () => {
           return jsonResponse(200, 1);
         }
         if (path.includes("hamta")) {
-          const body = init.body ? JSON.parse(init.body) : {};
-          hamtaBodies.push(body);
-          const requested = ((body as { variabler?: Array<{ Variabel?: string }> }).variabler ?? []).map(
-            (item) => item.Variabel ?? "",
-          );
-          const row: Record<string, unknown> = {
-            "Säteskommun, text": "Östersund",
-            Reklam: "11",
-          };
-          if (requested.some((name) => /namn|firma/i.test(name))) {
-            row.Namn = "Jämtlands Bygg AB";
-          }
-          if (requested.some((name) => /orgnr/i.test(name))) {
-            row["OrgNr (10 siffror)"] = "5560747569";
-          }
-          return jsonResponse(200, [row]);
+          hamtaBodies.push(init.body ? JSON.parse(init.body) : {});
+          return jsonResponse(200, [LIVE_JE_SEARCH_ROW]);
         }
         return catalog(url, init);
       }),
@@ -233,23 +199,23 @@ describe("scb_count_then_fetch", () => {
       warnings: string[];
     };
     const hamta = hamtaBodies[0] as { variabler?: Array<{ Variabel: string; Operator: string }> };
-    expect(hamta.variabler?.some((item) => /namn|firma|företagsnamn/i.test(item.Variabel))).toBe(true);
-    expect(hamta.variabler?.some((item) => /orgnr/i.test(item.Variabel))).toBe(true);
-    expect(hamta.variabler?.every((item) => item.Operator === "Finns")).toBe(true);
-    expect(hamta.variabler?.some((item) => /sateskommun|anstalld/i.test(fold(item.Variabel)))).toBe(false);
+    expect(hamta.variabler ?? []).toEqual([]);
+    expect(JSON.stringify(hamtaBodies)).not.toMatch(/Finns|ArLikaMed/);
+    expect(payload.warnings.join(" ")).not.toMatch(/Finns/);
     expect(payload.results[0]).toMatchObject({
       name: "Jämtlands Bygg AB",
       organizationNumber: "5560747569",
       municipality: "Östersund",
+      employeeCount: "10-19 anställda",
       Reklam: "11",
     });
-    expect(payload.warnings.join(" ")).toMatch(/Finns/);
+    expect(payload.results[0]?.Telefon).toBeUndefined();
   });
 
-  it("golden bygg without section F uses 41/42/43 and projects Namn/OrgNr", async () => {
+  it("golden bygg without section F uses 41/42/43 and projects Företagsnamn/OrgNr", async () => {
     const handlers = createToolHandlers(
       createTestClient(
-        catalogAndSearchFetch(liveConstructionCatalogSpec(), { count: 14, results: [LIVE_FETCH_ROW] }),
+        catalogAndSearchFetch(liveConstructionCatalogSpec(), { count: 14, results: [LIVE_JE_SEARCH_ROW] }),
       ),
       silent,
     );
@@ -273,6 +239,48 @@ describe("scb_count_then_fetch", () => {
       name: "Jämtlands Bygg AB",
       organizationNumber: "5560747569",
       municipality: "Östersund",
+      employeeCount: "10-19 anställda",
+      Reklam: "11",
+    });
+  });
+
+  it("AE count_then_fetch does not inject Finns and projects Benämning/OrgNr", async () => {
+    const hamtaBodies: unknown[] = [];
+    const catalog = catalogFetch({ shape: "live" });
+    const handlers = createToolHandlers(
+      createTestClient(async (url, init) => {
+        const path = new URL(url).pathname;
+        if (path.includes("rakna")) {
+          return jsonResponse(200, 1);
+        }
+        if (path.includes("hamta")) {
+          hamtaBodies.push(init.body ? JSON.parse(init.body) : {});
+          return jsonResponse(200, [LIVE_AE_SEARCH_ROW]);
+        }
+        return catalog(url, init);
+      }),
+      silent,
+    );
+    const result = await handlers.scb_count_then_fetch({
+      objectType: "workplace",
+      industry: { query: "bygg" },
+      geography: { type: "county", value: "Jämtland" },
+      employees: { min: 10, max: 15 },
+      maxRows: 50,
+      fields: ["name", "organizationNumber", "municipality", "employeeCount"],
+    });
+    expect(result.isError).toBeUndefined();
+    const payload = JSON.parse(result.content[0]?.text ?? "{}") as {
+      results: Array<Record<string, unknown>>;
+    };
+    const hamta = hamtaBodies[0] as { variabler?: Array<{ Operator: string }> };
+    expect(hamta.variabler ?? []).toEqual([]);
+    expect(JSON.stringify(hamtaBodies)).not.toMatch(/Finns|ArLikaMed/);
+    expect(payload.results[0]).toMatchObject({
+      name: "Jämtlands Bygg Östersund",
+      organizationNumber: "5560747569",
+      municipality: "Östersund",
+      employeeCount: "10-19 anställda",
       Reklam: "11",
     });
   });

@@ -87,14 +87,7 @@ export async function countThenFetch(
     );
   }
 
-  const categoryNames = namesFrom(await client.listCategories(objectType, false));
-  const variableNames = namesFrom(await client.listVariables(objectType, false));
-  const selectVariables = selectVariablesForFetch(
-    compiled.resolved.fields,
-    variableNames,
-    categoryNames,
-    filters.variables,
-  );
+  const selectVariables = selectVariablesForFetch();
 
   let searchResult;
   try {
@@ -114,11 +107,6 @@ export async function countThenFetch(
   );
 
   const extraWarnings = [...warnings];
-  if (selectVariables.length > 0) {
-    extraWarnings.push(
-      `Hämtning begärde SCB-variabler (${selectVariables.map((item) => item.variable).join(", ")}) med operator Finns så att name/organizationNumber följer med. Kategorier som Säteskommun/Anställda räcker som filter.`,
-    );
-  }
   if (!projected.reklamPreserved) {
     extraWarnings.push("Reklam saknades i SCB-raderna; fältet strippas aldrig av MCP.");
   }

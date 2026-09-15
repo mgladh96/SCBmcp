@@ -125,7 +125,7 @@ Två inmatningar:
 2) Redan kompilerat { objectType, filters, maxRows?, fields? }. Semantiska slotar ignoreras. Coverage för industry/geo/employees saknas då.
 
 Vid count=0, QUERY_TOO_BROAD eller kompileringsfel: strukturerat fel med nextAction, coverage+resolved, inga stora payloads.
-Vid träff: results med semantiska nycklar (name, organizationNumber, …) enligt resolved.fields, plus Reklam. Hämtningen skickar SCB-variabler (Namn/OrgNr, operator Finns) så att JE returnerar dem; kategorifilter räcker för kommun/anställda. coverage och resolved följer ALLTID med.
+Vid träff: results med semantiska nycklar (name, organizationNumber, …) enligt live hamta-nycklar (JE: Företagsnamn, OrgNr/PeOrgNr, Säteskommun, Storleksklass), plus Reklam. Skickar INTE operator Finns/ArLikaMed för att projicera Namn/OrgNr (SCB 400). coverage och resolved följer ALLTID med.
 
 Ingen NL. Ingen server-LLM. Agenten äger objectType.`;
 
