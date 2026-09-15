@@ -392,7 +392,7 @@ Kategorier, variabler och kodtabeller cacheas i processen i flera timmar (SCB up
 
 Bransch, geografi och storleksklass slås upp i `data/scb-catalog/catalog.json` — genererad från SCB-metadata (`listCategories` + `getCategoryValues`), inte en handhållen `städ → 81`-tabell. Agentvägen är **katalog → live rakna/hamta**. Normal `scb_query` gör noll live-metadataanrop när katalogen finns.
 
-Uppdatera katalogen (kräver SCB-certifikat):
+Uppdatera katalogen (kräver SCB-certifikat). Skriptet väntar och gör om anropet vid `SCB_RATE_LIMITED` (10 anrop / 10 s), så en full JE+AE-katalog kan byggas utan att avbrytas:
 
 ```bash
 pnpm catalog:refresh

@@ -40,7 +40,12 @@ async function main(): Promise<void> {
     logLevel: config.logLevel,
     offlineCatalog: false,
   });
-  const artifact = await buildCatalogFromClient(client, { source: "scb-live" });
+  const artifact = await buildCatalogFromClient(client, {
+    source: "scb-live",
+    onRateLimitWait: (waitMs) => {
+      process.stderr.write(`catalog:refresh: SCB rate limit, waiting ${waitMs}ms then retrying\n`);
+    },
+  });
   writeCatalogToDisk(out, artifact);
   process.stdout.write(
     `Wrote live catalog ${out} (${catalogDocCount(artifact)} rows, builtAt=${artifact.builtAt})\n`,

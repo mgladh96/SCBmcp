@@ -12,6 +12,7 @@ import { SEMANTIC_ALIAS_VERSION } from "./compile/aliases.js";
 import { lookupCategoryGroups } from "./code-lookup.js";
 import { buildDiscoveryIndex, type DiscoveryIndex } from "./discovery.js";
 import { extractMetadataItems } from "./payload.js";
+import { isRateLimited, withRateLimitRetry, type RateLimitRetryOptions } from "./rate-limit-retry.js";
 import type { ObjectType } from "./types.js";
 
 export const CATALOG_FORMAT_VERSION = 1 as const;
@@ -162,13 +163,25 @@ export function buildCatalogArtifact(input: CatalogBuildInput): CatalogArtifact 
   };
 }
 
+export type CatalogBuildOptions = {
+  source?: CatalogSource;
+  sourceVersion?: string;
+  builtAt?: string;
+  sleep?: (ms: number) => Promise<void>;
+  onRateLimitWait?: (waitMs: number) => void;
+};
+
 export async function buildCatalogFromClient(
   client: CatalogMetadataSource,
-  options: { source?: CatalogSource; sourceVersion?: string; builtAt?: string } = {},
+  options: CatalogBuildOptions = {},
 ): Promise<CatalogArtifact> {
+  const retry: RateLimitRetryOptions = {
+    ...(options.sleep ? { sleep: options.sleep } : {}),
+    ...(options.onRateLimitWait ? { onWait: options.onRateLimitWait } : {}),
+  };
   const layouts: CatalogBuildInput["layouts"] = {
-    company: await fetchLayout(client, "company"),
-    workplace: await fetchLayout(client, "workplace"),
+    company: await fetchLayout(client, "company", retry),
+    workplace: await fetchLayout(client, "workplace", retry),
   };
   return buildCatalogArtifact({
     source: options.source ?? "scb-live",
@@ -280,9 +293,13 @@ function materializeLayout(objectType: ObjectType, input: CatalogLayoutInput): C
   };
 }
 
-async function fetchLayout(client: CatalogMetadataSource, objectType: ObjectType): Promise<CatalogLayoutInput> {
-  const categoriesRaw = await client.listCategories(objectType, false);
-  const variablesRaw = await client.listVariables(objectType, false);
+async function fetchLayout(
+  client: CatalogMetadataSource,
+  objectType: ObjectType,
+  retry: RateLimitRetryOptions,
+): Promise<CatalogLayoutInput> {
+  const categoriesRaw = await withRateLimitRetry(() => client.listCategories(objectType, false), retry);
+  const variablesRaw = await withRateLimitRetry(() => client.listVariables(objectType, false), retry);
   const categoryNames = namesFrom(categoriesRaw);
   const variableNames = namesFrom(variablesRaw);
   const groups = lookupCategoryGroups(categoriesRaw).filter((group) =>
@@ -292,12 +309,17 @@ async function fetchLayout(client: CatalogMetadataSource, objectType: ObjectType
   for (const group of groups) {
     for (const category of group) {
       try {
-        const rows = extractCodeRows(await client.getCategoryValues(objectType, category));
+        const rows = extractCodeRows(
+          await withRateLimitRetry(() => client.getCategoryValues(objectType, category), retry),
+        );
         if (rows.length === 0) {
           continue;
         }
         tables.push({ category, rows });
-      } catch {
+      } catch (error) {
+        if (isRateLimited(error)) {
+          throw error;
+        }
         // Keep the snapshot useful even if one kodtabell is missing.
       }
     }

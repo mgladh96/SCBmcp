@@ -31,6 +31,7 @@ import {
   toScbQueryBody,
 } from "./payload.js";
 import { SlidingWindowRateLimiter } from "./rate-limit.js";
+import { defaultSleep, withRateLimitRetry } from "./rate-limit-retry.js";
 import type { ScbFilters } from "./schemas.js";
 import { cheapSampleCategoryNames, compactSchemaSummary, type SchemaSummary } from "./schema-summary.js";
 import {
@@ -414,7 +415,15 @@ export class ScbClient {
             getCategoryValues: (objectType, category) =>
               this.getCategoryValues(objectType, category, { bypassCatalog: true }),
           },
-          { source: "scb-live" },
+          {
+            source: "scb-live",
+            sleep: this.sleep,
+            onRateLimitWait: (waitMs) =>
+              this.log.info("SCB catalog rebuild waiting for rate limit", {
+                endpoint: "catalog",
+                retryAfterMs: waitMs,
+              }),
+          },
         );
         this.installCatalog(artifact);
         catalogRefreshed = true;
@@ -447,25 +456,22 @@ export class ScbClient {
   }
 
   private async warmStep<T>(label: string, run: () => Promise<T>): Promise<{ ok: boolean; error?: string }> {
+    let retried = false;
     try {
-      await run();
+      await withRateLimitRetry(run, {
+        sleep: this.sleep,
+        onWait: (waitMs) => {
+          retried = true;
+          this.log.info("SCB metadata warm waiting for rate limit", { endpoint: label, retryAfterMs: waitMs });
+        },
+      });
       return { ok: true };
     } catch (error) {
-      if (error instanceof ScbError && error.code === "SCB_RATE_LIMITED") {
-        const waitMs = typeof error.details.retryAfterMs === "number" ? error.details.retryAfterMs : RATE_LIMIT_WINDOW_MS;
-        this.log.info("SCB metadata warm waiting for rate limit", { endpoint: label, retryAfterMs: waitMs });
-        try {
-          await this.sleep(waitMs);
-          await run();
-          return { ok: true };
-        } catch (retryError) {
-          const message = retryError instanceof Error ? retryError.message : String(retryError);
-          this.log.error("SCB metadata warm failed after retry", { endpoint: label, errorCode: "SCB_UNAVAILABLE" });
-          return { ok: false, error: `${label}: ${message}` };
-        }
-      }
       const message = error instanceof Error ? error.message : String(error);
-      this.log.error("SCB metadata warm failed", { endpoint: label, errorCode: "SCB_UNAVAILABLE" });
+      this.log.error(retried ? "SCB metadata warm failed after retry" : "SCB metadata warm failed", {
+        endpoint: label,
+        errorCode: "SCB_UNAVAILABLE",
+      });
       return { ok: false, error: `${label}: ${message}` };
     }
   }
@@ -899,8 +905,3 @@ function toScbError(error: unknown): ScbError {
   });
 }
 
-function defaultSleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
