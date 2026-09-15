@@ -7,7 +7,7 @@ import { fold } from "../../domain/catalog.js";
  * Language aliases expand to **search terms only** (labels/tokens). Never expand a
  * query to SNI codes (F, 41, 42, 43, …). Ranking comes from metadata search.
  */
-export const SEMANTIC_ALIAS_VERSION = 4 as const;
+export const SEMANTIC_ALIAS_VERSION = 5 as const;
 
 const PLACE_ALIASES: Record<string, readonly string[]> = {
   jamtland: ["Jämtlands län", "Jämtland"],
@@ -15,6 +15,11 @@ const PLACE_ALIASES: Record<string, readonly string[]> = {
   gavleborg: ["Gävleborgs län", "Gävleborg"],
   gavleborgslan: ["Gävleborgs län", "Gävleborg"],
 };
+
+/** Catalog/SCB label text for everyday cleaning-company words. Not SNI codes. */
+const CLEANING_LABELS = ["Städning", "Städtjänster", "Lokalvård"] as const;
+/** Catalog/SCB label text for earthworks / groundwork colloquialisms. Not SNI codes. */
+const GROUNDWORK_LABELS = ["Mark- och grundarbeten", "mark", "Anläggningsarbeten"] as const;
 
 /** Language → extra lexical search terms. Values must not be SNI codes. */
 const INDUSTRY_ALIASES: Record<string, readonly string[]> = {
@@ -25,9 +30,17 @@ const INDUSTRY_ALIASES: Record<string, readonly string[]> = {
   kafe: ["Kafé", "Café", "Restaurangverksamhet"],
   transport: ["Transport", "Landtransport", "Magasinering", "Godstransport"],
   it: ["Informationsteknik", "Dataprogrammering", "Datakonsult", "Kommunikation"],
-  stad: ["Städning", "Städtjänster", "Lokalvård", "Rengöring", "Fastighetsservice"],
-  stadning: ["Städning", "Städtjänster", "Lokalvård", "Rengöring"],
-  stadforetag: ["Städtjänster", "Städning", "Lokalvård"],
+  stad: [...CLEANING_LABELS, "Rengöring", "Fastighetsservice"],
+  stadning: [...CLEANING_LABELS, "Rengöring"],
+  stadforetag: CLEANING_LABELS,
+  stadfirma: CLEANING_LABELS,
+  stadbolag: CLEANING_LABELS,
+  lokalvardare: CLEANING_LABELS,
+  lokalvard: CLEANING_LABELS,
+  markentreprenad: GROUNDWORK_LABELS,
+  markentreprenader: GROUNDWORK_LABELS,
+  schakt: GROUNDWORK_LABELS,
+  grav: GROUNDWORK_LABELS,
 };
 
 export function expandPlaceAliases(value: string, geoType: "county" | "municipality" | "aregion"): string[] {

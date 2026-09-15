@@ -115,7 +115,20 @@
     "expect": {
       "minHits": 1,
       "filterReady": true,
-      "labelPattern": "städ|rengör|fastighetsservice"
+      "labelPattern": "städ|rengör|fastighetsservice|lokalvård"
+    }
+  },
+  {
+    "id": "markentreprenad",
+    "description": "Earthworks colloquial query ranks catalog labels, not a hardcoded SNI list.",
+    "objectType": "company",
+    "query": "markentreprenad",
+    "kind": "industry",
+    "topK": 8,
+    "expect": {
+      "minHits": 1,
+      "filterReady": true,
+      "labelPattern": "mark- och grundarbeten|anl[äa]ggnings"
     }
   },
   {
