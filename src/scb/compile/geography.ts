@@ -71,22 +71,70 @@ export function pickStatusCategory(categoryNames: string[], objectType: ObjectTy
   );
 }
 
-export function pickIndustryCategory(categoryNames: string[]): string | undefined {
+export function pickIndustryCategory(
+  categoryNames: string[],
+  preferLevel?: number,
+): string | undefined {
   const industry = categoryNames.filter((name) => classifyCategoryKind(name) === "industry");
+  if (preferLevel === 2) {
+    const twoDigit = industry.find((name) => {
+      const n = fold(name);
+      return n.includes("2siffrig") || n.includes("tvasiffrig") || n.includes("tvasiffer");
+    });
+    if (twoDigit) {
+      return twoDigit;
+    }
+  }
+  if (preferLevel === 1) {
+    const section = industry.find((name) => {
+      const n = fold(name);
+      return n.includes("avdelning") || n.includes("1siffrig") || n.includes("sektion");
+    });
+    if (section) {
+      return section;
+    }
+  }
   return (
     industry.find((name) => fold(name) === "bransch") ??
+    industry.find((name) => fold(name).includes("bransch") && !fold(name).includes("siffrig")) ??
     industry.find((name) => fold(name).includes("bransch")) ??
     industry.find((name) => fold(name).includes("sni")) ??
     industry[0]
   );
 }
 
+/** Live Omsättningsklass* is revenue, not headcount. */
+export function isRevenueCategory(name: string): boolean {
+  return fold(name).includes("omsattning");
+}
+
+/**
+ * Live Bransch POSTs require Branschniva 1–3 on that category.
+ * Dedicated 2-siffrig / nivå tables encode the level in the category name.
+ */
+export function categoryNeedsBranchLevel(category: string): boolean {
+  const n = fold(category);
+  if (n === "bransch") {
+    return true;
+  }
+  if (!n.includes("bransch")) {
+    return false;
+  }
+  if (n.includes("siffrig") || n.includes("niva")) {
+    return false;
+  }
+  return classifyCategoryKind(category) === "industry";
+}
+
 export function pickSizeCategory(categoryNames: string[]): string | undefined {
-  const size = categoryNames.filter((name) => classifyCategoryKind(name) === "size");
+  const size = categoryNames.filter(
+    (name) => classifyCategoryKind(name) === "size" && !isRevenueCategory(name),
+  );
   return (
     size.find((name) => fold(name).includes("storleksklass") && fold(name).includes("anst")) ??
+    size.find((name) => fold(name).includes("anstalld") && !fold(name).includes("sme")) ??
     size.find((name) => fold(name).includes("storleksklass")) ??
-    size.find((name) => !fold(name).includes("anstsme") && !fold(name).includes("omsattning")) ??
+    size.find((name) => fold(name).includes("anstsme")) ??
     size[0]
   );
 }

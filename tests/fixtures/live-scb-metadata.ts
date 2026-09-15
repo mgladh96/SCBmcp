@@ -63,3 +63,10 @@ export const LIVE_STATUS_KODTABELL = {
     { Varde: "0", Text: "aldrig verksam" },
   ],
 };
+
+export const LIVE_OMSATTNING_KODTABELL = {
+  Varden: [
+    { Varde: "01", Text: "1 - 49 tkr" },
+    { Varde: "04", Text: "10 000 - 19 999 tkr" },
+  ],
+};

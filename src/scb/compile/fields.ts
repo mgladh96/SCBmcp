@@ -21,8 +21,8 @@ const FIELD_CANDIDATES: Record<string, { company: string[]; workplace: string[] 
     workplace: ["Kommun"],
   },
   employeeCount: {
-    company: ["Storleksklass Anställda", "AnstSME"],
-    workplace: ["Storleksklass Anställda", "AnstSME"],
+    company: ["Storleksklass Anställda", "Anställda", "AnstSME"],
+    workplace: ["Storleksklass Anställda", "Anställda", "AnstSME"],
   },
   county: {
     company: ["Säteslän", "SätesLän"],

@@ -23,7 +23,7 @@ export const categoryFilterSchema = z.object({
     .positive()
     .optional()
     .describe(
-      "SCB Branschniva. Bara meningsfullt på bransch/SNI-kategorier (2- vs 5-siffernivå m.m.). Ignoreras på toppnivåstatus. Varning om det sätts på icke-bransch.",
+      "SCB Branschniva 1–3. Obligatoriskt på kategorin Bransch (live 400 utan den). Bokstav→1, 2 siffror→2, 3+ siffror→3. Ignoreras på toppnivåstatus. Varning om det sätts på icke-bransch.",
     ),
 });
 

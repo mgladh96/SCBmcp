@@ -192,7 +192,8 @@ Happy path: **högst två** MCP-anrop — valfritt `scb_compile_query`, sedan `s
 }
 ```
 
-- `industry` är **alltid** objekt `{ query, level? }`, aldrig en bar sträng.
+- `industry` är **alltid** objekt `{ query, level? }`, aldrig en bar sträng. `level` är SNI-nivå; livekategorin **Bransch** kräver `Branschniva` 1–3 (bokstav→1, 2 siffror→2, 3+→3). Utelämnad `level` ger ändå en giltig POST: kompilatorn sätter nivån och föredrar avdelning/2-siffrig (t.ex. `F`) framför många 5-siffriga substringträffar. Coverage för bransch är då oftast `partial` eller `exact` om aliaset träffar avdelningen.
+- `employees` mappar till **Anställda** / **Storleksklass Anställda**, aldrig `Omsättningsklass*`. Etiketter med `tkr`/`mkr`/`kr` ignoreras. Begärt 10–15 mot klass 10–19 är **superset**, `exact: false`.
 - `status` default `active` (verksam, kod från kodtabellen). `any` utelämnar statusfilter.
 - `scb_count_then_fetch` tar antingen StructuredQuery **eller** redan kompilerat `{ objectType, filters, maxRows?, fields? }`. Om `filters` finns används de som de är (semantiska slotar ignoreras; coverage för industry/geo/employees saknas då).
 
@@ -206,7 +207,7 @@ Varje approximerat villkor:
 
 `relation`: `exact` | `superset` | `subset` | `partial` | `unrepresentable`.
 
-SCB har storleksklasser, inte exakt headcount. Begärt 10–15 mot klass 10–19 är **superset**, `exact: false`, med tydligt meddelande — aldrig tyst exact. Coverage finns på både `scb_compile_query` och `scb_count_then_fetch` (även vid `QUERY_TOO_BROAD` / `SCB_NO_MATCHES`).
+SCB har storleksklasser, inte exakt headcount. Begärt 10–15 mot klass 10–19 är **superset**, `exact: false`, med tydligt meddelande — aldrig tyst exact. Kompilatorn tar inte omsättningsklasser (`1 - 49 tkr`, `10 000 - 19 999 tkr`) som anställda. Coverage finns på både `scb_compile_query` och `scb_count_then_fetch` (även vid `QUERY_TOO_BROAD` / `SCB_NO_MATCHES`).
 
 JE-geografi: county → Säteslän (live `Id_Kategori_JE`, inte AE `Län`). AE: county → `Län`. Benchmark: `pnpm golden-path` (mockad live-formad metadata).
 
@@ -250,13 +251,13 @@ Variabelfilter accepterar bara dessa SCB-operatorer (svenska namn, inte `Contain
 
 `Innehaller` är verifierad mot exempel i den här kodbasen. Övriga namn är en **konservativ allowlist** utifrån SCB-hjälpexempel / kända sokpavar-klienter. **Verifiera mot** [`/help/exampleJe`](https://privateapi.scb.se/nv0101/v1/sokpavar/help/exampleJe) och [`/help/exampleAe`](https://privateapi.scb.se/nv0101/v1/sokpavar/help/exampleAe) (kräver klientcertifikat) innan listan behandlas som uttömmande. Okänd operator → `SCB_INVALID_QUERY` med `details.allowedOperators`.
 
-`branchLevel` på en kategorifilterpost mappas till SCB `Branschniva`. Det är bara meningsfullt på bransch/SNI-kategorier; servern varnar om det sätts på status, geografi eller storlek. Toppnivåstatus ignorerar fältet.
+`branchLevel` på en kategorifilterpost mappas till SCB `Branschniva`. Live **Bransch** kräver värdet 1–3 (annars 400 ModelState CustomError). `scb_compile_query` sätter det automatiskt. Det är bara meningsfullt på bransch/SNI-kategorier; servern varnar om det sätts på status, geografi eller storlek. Toppnivåstatus ignorerar fältet.
 
 Anti-mönster:
 
 - Namn som innehåller `"Bygg"` är inte SNI — slå upp med `scb_lookup_codes`.
 - Gävleborg som belägenhet är AE-kategorin `Län`, inte JE-säte (`Säteslän`) om användaren inte menar säte.
-- `AnstSME` är inte samma sak som kategorin **Storleksklass Anställda**.
+- `AnstSME` är inte samma sak som kategorin **Storleksklass Anställda**. `Omsättningsklass*` är omsättning, inte anställda.
 - Tomma `categories` och `variables` är giltiga men ger `warning` (obegränsad population).
 - `includeCodeTables=true` dumpa inte SNI i agentkontexten.
 
@@ -416,8 +417,8 @@ Maskinläsbar JSON. `code`-strängarna är oförändrade. Dessutom: `nextAction`
 - `SCB_AUTH_ERROR` — `abort_unanswerable` (operatör/certifikat)
 - `SCB_RATE_LIMITED` — `retry_same`, `details.retryAfterMs`
 - `SCB_UNAVAILABLE` — `retry_same`
-- `SCB_INVALID_QUERY` — `retry_modified` (kolla listverktygen / operatorer). Ogiltig operator ger `details.allowedOperators`
-- `SCB_UNKNOWN_CATEGORY` — `retry_modified`, `nearestNames[]` + ev. `layoutHint` när katalogen är cachead
+- `SCB_INVALID_QUERY` — `retry_modified` (kolla listverktygen / operatorer). Ogiltig operator ger `details.allowedOperators`. Live ModelState `CustomError` (t.ex. Bransch utan Branschnivå 1–3) används som `message`/`details.customError` — inte som `SCB_UNKNOWN_CATEGORY` på första kategorin i filtret
+- `SCB_UNKNOWN_CATEGORY` — `retry_modified`, `nearestNames[]` + ev. `layoutHint` när katalogen är cachead. `unknownName` tas från CustomError (`Kategorin X …`) när det går
 - `SCB_UNKNOWN_VARIABLE` — `retry_modified`, `nearestNames[]` när katalogen är cachead
 - `QUERY_TOO_BROAD` — `retry_modified`, smalna filter, paginera inte. `candidateNarrowingDimensions` använder katalognamn när de finns
 - `SCB_RESPONSE_VALIDATION_ERROR` — `abort_unanswerable`

@@ -21,7 +21,10 @@ describe("catalog classification", () => {
     expect(classifyCategoryKind("Län")).toBe("geography");
     expect(classifyCategoryKind("Bransch")).toBe("industry");
     expect(classifyCategoryKind("Storleksklass Anställda")).toBe("size");
+    expect(classifyCategoryKind("Anställda")).toBe("size");
     expect(classifyCategoryKind("AnstSME")).toBe("size");
+    expect(classifyCategoryKind("Omsättningsklass fin")).toBe("other");
+    expect(classifyCategoryKind("Omsättningsklass grov")).toBe("other");
     expect(classifyVariableKind("Företagsnamn")).toBe("name");
     expect(classifyVariableKind("PeOrgNr")).toBe("identity");
     expect(classifyVariableKind("OrgNr (10 siffror)")).toBe("identity");

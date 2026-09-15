@@ -114,6 +114,26 @@ describe("HTTP error mapping", () => {
     });
   });
 
+  it("maps ModelState CustomError about Branschnivå to SCB_INVALID_QUERY, not unknown Företagsstatus", () => {
+    const body = JSON.stringify({
+      Message: "The request is invalid.",
+      ModelState: {
+        CustomError: ["Kategorin Bransch kräver att Branschnivå (1-3) angetts."],
+      },
+    });
+    const error = mapHttpError(400, body, {
+      submittedCategories: ["Företagsstatus", "Bransch", "Säteslän"],
+      objectType: "company",
+    });
+    expect(error.code).toBe("SCB_INVALID_QUERY");
+    expect(error.message).toMatch(/Branschnivå \(1-3\)/u);
+    expect(error.nextAction).toBe("retry_modified");
+    expect(error.details.field).toBe("branchLevel");
+    expect(error.details.unknownName).toBe("Bransch");
+    expect(error.details.customError).toMatch(/Branschnivå/u);
+    expect(error.message).not.toMatch(/Företagsstatus/u);
+  });
+
   it("builds QUERY_TOO_BROAD details with filters and narrowing dimensions", () => {
     const error = queryTooBroad(8432, 2000, {
       objectType: "company",

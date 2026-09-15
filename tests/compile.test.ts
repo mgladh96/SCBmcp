@@ -2,11 +2,14 @@ import { describe, expect, it } from "vitest";
 import { fold } from "../src/domain/catalog.js";
 import {
   compileStructuredQuery,
+  isMonetaryLabel,
+  parseEmployeeBand,
+  parseSwedishInt,
   pickGeographyCategory,
+  pickSizeCategory,
   rangeRelation,
   structuredQuerySchema,
 } from "../src/scb/compile/index.js";
-import { parseEmployeeBand } from "../src/scb/compile/bands.js";
 import { catalogFetch, createTestClient } from "./helpers.js";
 
 const GOLDEN_QUERY = {
@@ -70,10 +73,35 @@ describe("employee band coverage", () => {
     expect(parseEmployeeBand({ code: "9", label: "500+ anställda" })?.max).toBeNull();
   });
 
+  it("rejects monetary labels and parses space-grouped Swedish numbers", () => {
+    expect(isMonetaryLabel("1 - 49 tkr")).toBe(true);
+    expect(isMonetaryLabel("10 000 - 19 999 tkr")).toBe(true);
+    expect(isMonetaryLabel("10-19 anställda")).toBe(false);
+    expect(parseEmployeeBand({ code: "01", label: "1 - 49 tkr" })).toBeUndefined();
+    expect(parseEmployeeBand({ code: "04", label: "10 000 - 19 999 tkr" })).toBeUndefined();
+    expect(parseSwedishInt("10 000")).toBe(10_000);
+    expect(parseEmployeeBand({ code: "x", label: "10 000 - 19 999 anställda" })).toEqual({
+      code: "x",
+      label: "10 000 - 19 999 anställda",
+      min: 10_000,
+      max: 19_999,
+    });
+  });
+
   it("treats 10–15 vs 10–19 as superset, never exact", () => {
     expect(rangeRelation(10, 15, 10, 19)).toBe("superset");
     expect(rangeRelation(10, 19, 10, 19)).toBe("exact");
     expect(rangeRelation(5, 100, 10, 19)).toBe("subset");
+  });
+
+  it("never picks Omsättningsklass for employees", () => {
+    expect(
+      pickSizeCategory(["Omsättningsklass fin", "Omsättningsklass grov", "Anställda", "Bransch"]),
+    ).toBe("Anställda");
+    expect(pickSizeCategory(["Omsättningsklass fin", "Storleksklass Anställda"])).toBe(
+      "Storleksklass Anställda",
+    );
+    expect(pickSizeCategory(["Omsättningsklass fin"])).toBeUndefined();
   });
 });
 
@@ -93,10 +121,18 @@ describe("compileStructuredQuery golden path (live-shaped metadata)", () => {
 
     const industry = compiled.filters.categories.find((item) => fold(item.category).includes("bransch"));
     expect(industry?.values.length).toBeGreaterThan(0);
+    expect(industry?.values.length).toBeLessThanOrEqual(8);
     expect(industry?.values).toContain("F");
+    expect(industry?.branchLevel).toBe(1);
+    expect(industry?.values.every((code) => !/^\d{5}$/u.test(code))).toBe(true);
 
-    const size = compiled.filters.categories.find((item) => fold(item.category).includes("storleksklass"));
+    const size = compiled.filters.categories.find(
+      (item) =>
+        fold(item.category).includes("storleksklass") || fold(item.category).includes("anstalld"),
+    );
     expect(size?.values).toContain("4");
+    expect(fold(size?.category ?? "")).not.toMatch(/omsattning/);
+    expect(size?.category).not.toMatch(/Omsättningsklass/i);
     const emp = compiled.coverage.find((item) => item.constraint === "employees");
     expect(emp?.relation).toBe("superset");
     expect(emp?.exact).toBe(false);
@@ -136,10 +172,12 @@ describe("compileStructuredQuery golden path (live-shaped metadata)", () => {
     );
     expect(compiled.ok).toBe(true);
     const industry = compiled.coverage.find((item) => item.constraint === "industry");
-    expect(industry?.applied).toMatchObject({ category: "Bransch" });
+    expect(industry?.applied).toMatchObject({ category: "Bransch", branchLevel: 1 });
     const codes = compiled.resolved.industry?.codes.map((item) => item.code) ?? [];
-    expect(codes.length).toBeGreaterThan(0);
-    expect(codes.some((code) => code === "F" || code === "41")).toBe(true);
+    expect(codes).toEqual(["F"]);
+    const filter = compiled.filters.categories.find((item) => item.category === "Bransch");
+    expect(filter?.branchLevel).toBe(1);
+    expect(filter?.values).toEqual(["F"]);
   });
 
   it("resolves semantic fields per objectType", async () => {
@@ -207,5 +245,91 @@ describe("compileStructuredQuery golden path (live-shaped metadata)", () => {
     );
     expect(compiled.ok).toBe(false);
     expect(compiled.unresolved.some((item) => item.constraint === "industry")).toBe(true);
+  });
+
+  it("maps employees 10–15 to Anställda (not Omsättningsklass) with superset coverage", async () => {
+    const client = createTestClient(
+      catalogFetch({
+        shape: "live",
+        categories: {
+          company: [
+            "Företagsstatus",
+            "Omsättningsklass fin",
+            "Omsättningsklass grov",
+            "Anställda",
+            "Säteslän",
+            "Säteskommun",
+            "Bransch",
+          ],
+          workplace: ["Arbetsställestatus", "Län", "Omsättningsklass fin", "Anställda", "Bransch"],
+        },
+      }),
+    );
+    const compiled = await compileStructuredQuery(
+      structuredQuerySchema.parse({
+        objectType: "company",
+        employees: { min: 10, max: 15 },
+        status: "any",
+      }),
+      client,
+    );
+    expect(compiled.ok).toBe(true);
+    const size = compiled.filters.categories.find((item) =>
+      compiled.resolved.employees ? item.category === compiled.resolved.employees.category : false,
+    );
+    expect(size?.category).toBe("Anställda");
+    expect(size?.category).not.toMatch(/Omsättningsklass/i);
+    expect(size?.values).toEqual(["4"]);
+    expect(compiled.resolved.employees?.bands).toEqual([
+      expect.objectContaining({ code: "4", min: 10, max: 19 }),
+    ]);
+    const emp = compiled.coverage.find((item) => item.constraint === "employees");
+    expect(emp?.relation).toBe("superset");
+    expect(emp?.exact).toBe(false);
+    expect(JSON.stringify(compiled.filters)).not.toMatch(/Omsättningsklass/i);
+  });
+
+  it("sets Branschniva 1–3 on Bransch and prefers section F over noisy 5-digit bygg hits", async () => {
+    const compiled = await compileStructuredQuery(
+      structuredQuerySchema.parse({ objectType: "company", industry: { query: "bygg" }, status: "any" }),
+      liveClient(),
+    );
+    const filter = compiled.filters.categories.find((item) => item.category === "Bransch");
+    expect(filter?.branchLevel).toBeGreaterThanOrEqual(1);
+    expect(filter?.branchLevel).toBeLessThanOrEqual(3);
+    expect(filter?.values).toEqual(["F"]);
+    expect(filter?.values.some((code) => /^\d{5}$/u.test(code))).toBe(false);
+    expect(compiled.coverage.find((item) => item.constraint === "industry")?.relation).toBe("exact");
+  });
+
+  it("honours industry.level 2 as Branschniva 2 with 2-digit codes", async () => {
+    const compiled = await compileStructuredQuery(
+      structuredQuerySchema.parse({
+        objectType: "company",
+        industry: { query: "bygg", level: 2 },
+        status: "any",
+      }),
+      liveClient(),
+    );
+    const filter = compiled.filters.categories.find((item) => item.category === "Bransch");
+    expect(filter?.branchLevel).toBe(2);
+    expect(filter?.values.length).toBeGreaterThan(0);
+    expect(filter?.values.every((code) => /^\d{2}$/u.test(code))).toBe(true);
+    expect(filter?.values).toContain("41");
+  });
+
+  it("clamps industry.level 5 to Branschniva 3", async () => {
+    const compiled = await compileStructuredQuery(
+      structuredQuerySchema.parse({
+        objectType: "company",
+        industry: { query: "bygg", level: 5 },
+        status: "any",
+      }),
+      liveClient(),
+    );
+    const filter = compiled.filters.categories.find((item) => item.category === "Bransch");
+    expect(filter?.branchLevel).toBe(3);
+    expect(filter?.values.every((code) => /^\d{5}$/u.test(code))).toBe(true);
+    expect(compiled.warnings.some((item) => /klampades|Branschniva 3/u.test(item))).toBe(true);
   });
 });

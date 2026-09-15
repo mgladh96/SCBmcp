@@ -196,50 +196,90 @@ export function mapHttpError(
       body: snippet,
     });
   }
-  const lower = bodyText.toLowerCase();
+  const parsed = parseScbHttpErrorBody(bodyText);
+  const joined = parsed.messages.join(" ").toLowerCase();
+  const searchable = `${joined} ${bodyText.toLowerCase()}`;
   if (status === 400 || status === 404) {
-    if (lower.includes("kategori")) {
-      const unknownName = context.unknownName ?? context.submittedCategories?.[0];
+    if (isBranchLevelRequirement(searchable, parsed.messages)) {
+      const customError = parsed.customError ?? parsed.messages[0] ?? "Kategorin Bransch kräver att Branschnivå (1-3) angetts.";
+      const named = namedCategoryFromMessages(parsed.messages) ?? "Bransch";
+      return new ScbError(
+        "SCB_INVALID_QUERY",
+        customError,
+        false,
+        {
+          status,
+          body: snippet,
+          origin: "scb_http",
+          field: "branchLevel",
+          customError,
+          unknownName: named,
+          ...(context.objectType ? { objectType: context.objectType } : {}),
+          ...(context.submittedCategories ? { submittedCategories: context.submittedCategories } : {}),
+        },
+        {
+          nextAction: "retry_modified",
+          nextTools: ["scb_compile_query", "scb_schema_summary", "scb_lookup_codes"],
+        },
+      );
+    }
+    if (searchable.includes("kategori")) {
+      const customError = parsed.customError ?? parsed.messages[0];
+      const unknownName =
+        namedCategoryFromMessages(parsed.messages) ?? context.unknownName ?? context.submittedCategories?.[0];
       return new ScbError(
         "SCB_UNKNOWN_CATEGORY",
-        unknownName ? `SCB rejected the category "${unknownName}".` : "SCB rejected the category.",
+        customError ??
+          (unknownName ? `SCB rejected the category "${unknownName}".` : "SCB rejected the category."),
         false,
         {
           status,
           body: snippet,
           field: context.field ?? "category",
           unknownName: unknownName ?? null,
+          ...(customError ? { customError } : {}),
           ...(context.objectType ? { objectType: context.objectType } : {}),
           ...(context.submittedCategories ? { submittedCategories: context.submittedCategories } : {}),
         },
       );
     }
-    if (lower.includes("variabel")) {
-      const unknownName = context.unknownName ?? context.submittedVariables?.[0];
+    if (searchable.includes("variabel")) {
+      const customError = parsed.customError ?? parsed.messages[0];
+      const unknownName =
+        namedVariableFromMessages(parsed.messages) ?? context.unknownName ?? context.submittedVariables?.[0];
       return new ScbError(
         "SCB_UNKNOWN_VARIABLE",
-        unknownName ? `SCB rejected the variable "${unknownName}".` : "SCB rejected the variable.",
+        customError ??
+          (unknownName ? `SCB rejected the variable "${unknownName}".` : "SCB rejected the variable."),
         false,
         {
           status,
           body: snippet,
           field: context.field ?? "variable",
           unknownName: unknownName ?? null,
+          ...(customError ? { customError } : {}),
           ...(context.objectType ? { objectType: context.objectType } : {}),
           ...(context.submittedVariables ? { submittedVariables: context.submittedVariables } : {}),
         },
       );
     }
-    return new ScbError("SCB_INVALID_QUERY", "SCB rejected the query.", false, {
-      status,
-      body: snippet,
-      origin: "scb_http",
-      ...(context.field ? { field: context.field } : {}),
-      ...(context.unknownName ? { unknownName: context.unknownName } : {}),
-      ...(context.objectType ? { objectType: context.objectType } : {}),
-      ...(context.submittedCategories ? { submittedCategories: context.submittedCategories } : {}),
-      ...(context.submittedVariables ? { submittedVariables: context.submittedVariables } : {}),
-    });
+    const customError = parsed.customError ?? parsed.messages[0];
+    return new ScbError(
+      "SCB_INVALID_QUERY",
+      customError ?? "SCB rejected the query.",
+      false,
+      {
+        status,
+        body: snippet,
+        origin: "scb_http",
+        ...(customError ? { customError } : {}),
+        ...(context.field ? { field: context.field } : {}),
+        ...(context.unknownName ? { unknownName: context.unknownName } : {}),
+        ...(context.objectType ? { objectType: context.objectType } : {}),
+        ...(context.submittedCategories ? { submittedCategories: context.submittedCategories } : {}),
+        ...(context.submittedVariables ? { submittedVariables: context.submittedVariables } : {}),
+      },
+    );
   }
   if (status >= 500) {
     return new ScbError("SCB_UNAVAILABLE", `SCB returned HTTP ${status}.`, true, {
@@ -318,4 +358,93 @@ function isEmptyFilters(filters: unknown): boolean {
   const categories = Array.isArray(record.categories) ? record.categories : [];
   const variables = Array.isArray(record.variables) ? record.variables : [];
   return categories.length === 0 && variables.length === 0;
+}
+
+type ParsedScbHttpError = {
+  messages: string[];
+  customError?: string;
+};
+
+export function parseScbHttpErrorBody(bodyText: string): ParsedScbHttpError {
+  const messages: string[] = [];
+  let customError: string | undefined;
+  try {
+    const parsed: unknown = JSON.parse(bodyText);
+    collectErrorStrings(parsed, messages, (text, fromCustom) => {
+      if (fromCustom && !customError) {
+        customError = text;
+      }
+    });
+  } catch {
+    if (bodyText.trim()) {
+      messages.push(bodyText.trim());
+    }
+  }
+  if (messages.length === 0 && bodyText.trim()) {
+    messages.push(bodyText.trim());
+  }
+  if (!customError) {
+    customError = messages.find((item) => /CustomError/i.test(bodyText) && item !== "The request is invalid.") ??
+      messages.find((item) => /branschniv|okänd|kan inte hittas|kräv/i.test(item));
+  }
+  return customError ? { messages, customError } : { messages };
+}
+
+function collectErrorStrings(
+  value: unknown,
+  into: string[],
+  onCustom: (text: string, fromCustom: boolean) => void,
+  fromCustom = false,
+): void {
+  if (typeof value === "string" && value.trim()) {
+    const text = value.trim();
+    into.push(text);
+    onCustom(text, fromCustom);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectErrorStrings(item, into, onCustom, fromCustom);
+    }
+    return;
+  }
+  if (!value || typeof value !== "object") {
+    return;
+  }
+  const rec = value as Record<string, unknown>;
+  for (const [key, nested] of Object.entries(rec)) {
+    const customKey = /^(customerror)$/i.test(key);
+    collectErrorStrings(nested, into, onCustom, fromCustom || customKey);
+  }
+}
+
+function isBranchLevelRequirement(searchable: string, messages: string[]): boolean {
+  const text = `${searchable} ${messages.join(" ")}`.toLowerCase();
+  return (
+    text.includes("branschniv") ||
+    text.includes("branschniva") ||
+    text.includes("branchlevel")
+  );
+}
+
+function namedCategoryFromMessages(messages: string[]): string | undefined {
+  for (const message of messages) {
+    const match = /Kategorin\s+(.+?)\s+(?:kräv|kan inte|hittas|måste|är)/iu.exec(message);
+    const name = match?.[1]?.trim();
+    if (name) {
+      return name;
+    }
+  }
+  return undefined;
+}
+
+function namedVariableFromMessages(messages: string[]): string | undefined {
+  for (const message of messages) {
+    const match = /Variabeln\s+(.+?)\s+(?:kräv|kan inte|hittas|måste|är)/iu.exec(message);
+    const name = match?.[1]?.trim();
+    if (name) {
+      return name;
+    }
+  }
+  return undefined;
 }
