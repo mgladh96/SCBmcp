@@ -488,30 +488,11 @@ export function createToolHandlers(client: ScbClient, log = createLogger()) {
     },
 
     async scb_lookup_codes(input: unknown): Promise<ToolResult> {
-      const parsed = lookupCodesInputSchema.safeParse(input);
-      if (!parsed.success) {
-        return errorResult(invalidInput("scb_lookup_codes", parsed.error));
-      }
-      const started = Date.now();
-      try {
-        const result = await discoverCodes(client, parsed.data.objectType, parsed.data.query, {
-          category: parsed.data.category,
-          kind: parsed.data.kind,
-          parentCode: parsed.data.parentCode,
-          limit: parsed.data.limit,
-          bypassCache: parsed.data.bypassCache === true,
-        });
-        log.info("MCP tool", {
-          tool: "scb_lookup_codes",
-          durationMs: Date.now() - started,
-          status: 200,
-          objectType: parsed.data.objectType,
-        });
-        return jsonResult({ ...result, source: SOURCE_LABEL });
-      } catch (error) {
-        logToolError("scb_lookup_codes", started, error);
-        return errorResult(error);
-      }
+      return lookupCodes("scb_lookup_codes", input);
+    },
+
+    async scb_discover(input: unknown): Promise<ToolResult> {
+      return lookupCodes("scb_discover", input);
     },
 
     async scb_filter_hints(input: unknown): Promise<ToolResult> {
@@ -565,6 +546,7 @@ export function createToolHandlers(client: ScbClient, log = createLogger()) {
         });
         return jsonResult({
           ok: compiled.ok,
+          status: compiled.status,
           objectType: compiled.objectType,
           layout: compiled.resolved.layout,
           filters: compiled.filters,
@@ -581,30 +563,65 @@ export function createToolHandlers(client: ScbClient, log = createLogger()) {
     },
 
     async scb_count_then_fetch(input: unknown): Promise<ToolResult> {
-      if (isFreeTextQuery(input)) {
-        return errorResult(nlRejectedError());
-      }
-      const parsed = countThenFetchInputSchema.safeParse(input);
-      if (!parsed.success) {
-        return errorResult(invalidInput("scb_count_then_fetch", parsed.error));
-      }
-      const started = Date.now();
-      try {
-        const payload = await countThenFetch(client, parsed.data);
-        log.info("MCP tool", {
-          tool: "scb_count_then_fetch",
-          durationMs: Date.now() - started,
-          status: 200,
-          objectType: payload.objectType,
-          count: payload.count,
-        });
-        return jsonResult(payload);
-      } catch (error) {
-        logToolError("scb_count_then_fetch", started, error);
-        return errorResult(error);
-      }
+      return runQuery("scb_count_then_fetch", input);
+    },
+
+    async scb_query(input: unknown): Promise<ToolResult> {
+      return runQuery("scb_query", input);
     },
   };
+
+  async function lookupCodes(tool: string, input: unknown): Promise<ToolResult> {
+    const parsed = lookupCodesInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return errorResult(invalidInput(tool, parsed.error));
+    }
+    const started = Date.now();
+    try {
+      const result = await discoverCodes(client, parsed.data.objectType, parsed.data.query, {
+        category: parsed.data.category,
+        kind: parsed.data.kind,
+        parentCode: parsed.data.parentCode,
+        limit: parsed.data.limit,
+        bypassCache: parsed.data.bypassCache === true,
+      });
+      log.info("MCP tool", {
+        tool,
+        durationMs: Date.now() - started,
+        status: 200,
+        objectType: parsed.data.objectType,
+      });
+      return jsonResult({ ...result, source: SOURCE_LABEL });
+    } catch (error) {
+      logToolError(tool, started, error);
+      return errorResult(error);
+    }
+  }
+
+  async function runQuery(tool: string, input: unknown): Promise<ToolResult> {
+    if (isFreeTextQuery(input)) {
+      return errorResult(nlRejectedError());
+    }
+    const parsed = countThenFetchInputSchema.safeParse(input);
+    if (!parsed.success) {
+      return errorResult(invalidInput(tool, parsed.error));
+    }
+    const started = Date.now();
+    try {
+      const payload = await countThenFetch(client, parsed.data);
+      log.info("MCP tool", {
+        tool,
+        durationMs: Date.now() - started,
+        status: 200,
+        objectType: payload.objectType,
+        ...(payload.status === "ok" ? { count: payload.count } : { queryStatus: payload.status }),
+      });
+      return jsonResult(payload);
+    } catch (error) {
+      logToolError(tool, started, error);
+      return errorResult(error);
+    }
+  }
 
   function logToolError(tool: string, started: number, error: unknown): void {
     const code = error instanceof ScbError ? error.code : "SCB_UNAVAILABLE";

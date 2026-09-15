@@ -8,36 +8,38 @@ Objekttyper (alltid explicita):
 - company = JE (juridisk enhet). Geografi = Säteslän / Säteskommun (säte), inte AE Län.
 - workplace = AE (arbetsställe). Geografi = Län / Kommun (belägenhet).
 
-Happy path (≤2 verktyg):
-1. Valfritt scb_compile_query — dry-run, coverage (t.ex. anställda 10–15 mot klass 10–19 = superset, exact=false).
-2. scb_count_then_fetch med samma StructuredQuery. Räknar, hämtar om 1≤count≤2000, projicerar semantiska fält. coverage+resolved följer med.
+Happy path (≤2 verktyg) — föredra scb_query först:
+1. scb_query med StructuredQuery. Ett anrop räcker när branschen är entydig (status=ok: count + rader + coverage + resolved).
+2. Om status=choose: välj bland filterklara candidates (max 5). Hitta inte på ett filter. Andra anropet: scb_query med industry.codes (t.ex. ["41"] eller ["41","42","43"]). Query behövs inte då. Geografi/anställda från första svaret kan följa med.
+3. status=impossible: olöst/orepresenterbart — läs reason. Använd inte scb_discover bara för att göra om samma discovery.
+4. scb_compile_query är valfri dry-run och krävs inte. scb_discover / scb_lookup_codes bara vid utforskning.
 
-StructuredQuery: objectType; industry: { query, level? } (alltid objekt; samma discoverCodes som scb_lookup_codes — tydlig cluster → filter, tvetydigt → unresolved+candidates; inte query→kod-tabell; Bransch kräver Branschniva 1–3 — 2-siffrig bransch * behöver den inte); geography: { type: county|municipality|aregion, value }; employees: { min?, max? } → Anställda/Storleksklass Anställda (aldrig Omsättningsklass; 10–15 mot 10–19 = superset, exact=false); status: active|any (default active); maxRows; fields: semantiska id:n (name, organizationNumber, municipality, employeeCount) — inte SCB-namn.
+StructuredQuery: objectType; industry: { query, level? } eller { codes, category?, branchLevel? } (samma discoverCodes som scb_discover — tydlig cluster → filter, tvetydigt → choose+candidates; inte query→kod-tabell; Bransch kräver Branschniva 1–3 — 2-siffrig bransch * behöver den inte); geography: { type: county|municipality|aregion, value }; employees: { min?, max? } → Anställda/Storleksklass Anställda (aldrig Omsättningsklass; 10–15 mot 10–19 = superset, exact=false); status: active|any (default active); maxRows; fields: semantiska id:n (name, organizationNumber, municipality, employeeCount) — inte SCB-namn.
 
 Manuellt/avancerat (när du behöver råa SCB-filter):
 1. scb_schema_summary för rätt objectType. Namn MÅSTE komma därifrån eller listverktygen.
-2. scb_lookup_codes för koder från etiketter — inte includeCodeTables=true.
+2. scb_discover (alias scb_lookup_codes) för koder från etiketter — inte includeCodeTables=true.
 3. scb_explain_query (noll SCB-anrop) för serialiserad POST.
 4. scb_count_* sedan scb_search_* (search räknar internt; återanvänd nylig count). count=0 → stanna. count>2000 → smalna, paginera inte.
 5. Tomma filter = hela populationen (warning). SCB högst 2000 rader.
 
 Anti-mönster:
-- Namn innehåller "Bygg" ≠ SNI/bransch. StructuredQuery.industry.query slår upp koder; fritext "Bygg" i företagsnamn är ett annat filter.
+- Namn innehåller "Bygg" ≠ SNI/bransch. StructuredQuery.industry.query slår upp koder; fritext "Bygg" i företagsnamn är ett annat filter. Välj aldrig tyst 41 vs båt-30.
 - Operatorer är SCB-enum: Innehaller, ArLikaMed, BorjarPa, Mellan, FranOchMed, TillOchMed, Finns, FinnsInte — inte Contains/Equals.
 - AnstSME ≠ Storleksklass Anställda. Numeriskt employees-intervall mappas till klasser med ärlig coverage (aldrig tyst exact vid bandapproximation).
 - Behåll fältet Reklam; kringgå inte reklamspärr.
 - Org.nr: katalogvariabler kan heta OrgNr (10/12 siffror); live hamta-rader har OrgNr/PeOrgNr (JE). Semantic organizationNumber mappar de nycklarna — skicka inte Finns för att “välja” kolumner.
 - Ingen historik i detta API.
-- Kvot: 10 anrop / 10 sekunder. Vid SCB_RATE_LIMITED: vänta retryAfterMs och upprepa samma anrop (retry_same). Servern väntar inte tyst.
+- Kvot: 10 anrop / 10 sekunder. Vid SCB_RATE_LIMITED: vänta retryAfterMs och upprepa samma anrop (retry_same). Servern väntar inte tyst. Metadata värms i bakgrunden vid start.
 
-Fel-JSON: läs nextAction (retry_same | retry_modified | abort_unanswerable) och nextTools. QUERY_TOO_BROAD och SCB_NO_MATCHES från scb_count_then_fetch innehåller coverage+resolved. SCB_UNKNOWN_* har nearestNames.`;
+Fel-JSON: läs nextAction (retry_same | retry_modified | abort_unanswerable) och nextTools. QUERY_TOO_BROAD och SCB_NO_MATCHES från scb_query innehåller coverage+resolved. SCB_UNKNOWN_* har nearestNames.`;
 
 export function exploreSchemaPrompt(objectType: string): string {
   const layout = objectType === "workplace" ? "AE (workplace)" : "JE (company)";
   return `Utforska SCB-schemat för ${layout} innan du filtrerar.
 
 1. Anropa scb_schema_summary med objectType="${objectType}". Använd exakta namn från categories[].name / variables[].name.
-2. Anropa scb_lookup_codes för etiketter (Gävleborg, SNI-text, storleksklass). Träffar är filterklara (category+code). Dumpa inte SNI.
+2. Anropa scb_discover / scb_lookup_codes för etiketter (Gävleborg, SNI-text, storleksklass). Träffar är filterklara (category+code). Dumpa inte SNI.
 3. scb_get_category_values med query/limit om du behöver mer av en tabell. includeAll bara när tabellen är liten.
 4. Gissa inte namn. "Län" är AE; "Säteslän" är JE. "Bygg" i företagsnamn är inte SNI.
 5. Operatorer är SCB-enum (Innehaller, ArLikaMed, …), inte engelska Contains/Equals. branchLevel = Branschniva, bara på bransch.
@@ -49,7 +51,7 @@ export function countThenFetchPrompt(objectType: string): string {
   const searchTool = objectType === "workplace" ? "scb_search_workplaces" : "scb_search_companies";
   return `Räkna sedan hämta för objectType="${objectType}".
 
-Föredra verktyget scb_count_then_fetch med StructuredQuery (agenten äger objectType; coverage följer med). Denna prompt är det manuella filterflödet.
+Föredra verktyget scb_query med StructuredQuery (agenten äger objectType; coverage följer med). Denna prompt är det manuella filterflödet.
 
 1. Bygg filter med namn från listverktygen och koder från kodtabeller.
 2. Anropa ${countTool} medan du itererar.
@@ -77,7 +79,7 @@ Gör så här — utan att paginera och utan nya blinda SCB-prober i kaskad:
 3. Lägg på saknade dimensioner i ungefär denna ordning:
    - status: ${status}
    - geografi: ${geo}
-   - SNI/bransch via scb_lookup_codes (namn "Bygg" ≠ SNI) och ev. branchLevel (Branschniva)
+   - SNI/bransch via scb_discover (namn "Bygg" ≠ SNI) och ev. branchLevel (Branschniva)
    - Storleksklass Anställda (inte AnstSME om frågan gäller storleksklass)
    - namnvariabel med operator Innehaller bara om användaren vill ha namnträff
 4. Anropa ${countTool} efter varje smalning. Hämta först när count≤2000.

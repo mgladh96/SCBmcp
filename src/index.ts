@@ -39,6 +39,12 @@ async function main(): Promise<void> {
     port: config.port,
     auth: config.authToken ? "required" : "disabled",
   });
+
+  void client.warmMetadataCache().catch((error: unknown) => {
+    log.error("SCB metadata warm crashed", {
+      errorCode: error instanceof ScbError ? error.code : "SCB_UNAVAILABLE",
+    });
+  });
 }
 
 main().catch((error: unknown) => {

@@ -6,11 +6,15 @@ import { SOURCE_PROVIDER, SOURCE_REGISTRY, DEFAULT_SEARCH_MAX_ROWS, MAX_RESULTS 
 import { compileStructuredQuery } from "./compile.js";
 import { projectToSemanticFields, resolveSemanticFields, selectVariablesForFetch } from "./fields.js";
 import { extractMetadataItems } from "../payload.js";
+import { chooseCandidates, classifyQueryStatus, firstUnresolvedReason } from "./outcome.js";
 import { hasCompiledFilters, type CountThenFetchInput } from "./schema.js";
-import type { CompileResult, CoverageEntry, ResolvedMappings } from "./types.js";
+import type { CompileResult, CoverageEntry, IndustryCandidate, ResolvedMappings } from "./types.js";
 import { DEFAULT_SEMANTIC_FIELDS } from "./types.js";
 
+const QUERY_SOURCE = { provider: SOURCE_PROVIDER, registry: SOURCE_REGISTRY };
+
 export type CountThenFetchSuccess = {
+  status: "ok";
   ok: true;
   objectType: CountThenFetchInput["objectType"];
   count: number;
@@ -29,16 +33,46 @@ export type CountThenFetchSuccess = {
   omittedByMaxRows?: number;
 };
 
+export type CountThenFetchChoose = {
+  status: "choose";
+  ok: false;
+  objectType: CountThenFetchInput["objectType"];
+  reason: string;
+  candidates: IndustryCandidate[];
+  filters: CompileResult["filters"];
+  resolved: ResolvedMappings;
+  coverage: CoverageEntry[];
+  warnings: string[];
+  unresolved: CompileResult["unresolved"];
+  source: { provider: string; registry: string };
+};
+
+export type CountThenFetchImpossible = {
+  status: "impossible";
+  ok: false;
+  objectType: CountThenFetchInput["objectType"];
+  reason: string;
+  candidates: IndustryCandidate[];
+  filters: CompileResult["filters"];
+  resolved: ResolvedMappings;
+  coverage: CoverageEntry[];
+  warnings: string[];
+  unresolved: CompileResult["unresolved"];
+  source: { provider: string; registry: string };
+};
+
+export type CountThenFetchResult = CountThenFetchSuccess | CountThenFetchChoose | CountThenFetchImpossible;
+
 export async function countThenFetch(
   client: ScbClient,
   input: CountThenFetchInput,
-): Promise<CountThenFetchSuccess> {
+): Promise<CountThenFetchResult> {
   const compiled = hasCompiledFilters(input)
     ? await compiledPassthrough(client, input)
     : await compileStructuredQuery(input, client);
 
   if (!hasCompiledFilters(input) && !compiled.ok) {
-    throw compileFailedError(compiled);
+    return compileOutcomePayload(compiled);
   }
 
   const objectType = compiled.objectType;
@@ -69,7 +103,7 @@ export async function countThenFetch(
       },
       {
         nextAction: "retry_modified",
-        nextTools: ["scb_compile_query", "scb_lookup_codes", "scb_schema_summary"],
+        nextTools: ["scb_query", "scb_compile_query", "scb_discover", "scb_schema_summary"],
       },
     );
   }
@@ -117,6 +151,7 @@ export async function countThenFetch(
   }
 
   const payload: CountThenFetchSuccess = {
+    status: "ok",
     ok: true,
     objectType,
     count: searchResult.count,
@@ -127,7 +162,7 @@ export async function countThenFetch(
     resolved: compiled.resolved,
     coverage: compiled.coverage,
     warnings: extraWarnings,
-    source: { provider: SOURCE_PROVIDER, registry: SOURCE_REGISTRY },
+    source: QUERY_SOURCE,
     projectedFields: projected.projectedFields,
     maxRows: projected.maxRows,
   };
@@ -168,6 +203,7 @@ async function compiledPassthrough(
   }
   return {
     ok: true,
+    status: "ok",
     objectType,
     filters: input.filters,
     resolved: { layout: objectType === "workplace" ? "ae" : "je", fields },
@@ -184,6 +220,35 @@ async function compiledPassthrough(
     warnings,
     unresolved: [],
   };
+}
+
+export function compileOutcomePayload(compiled: CompileResult): CountThenFetchChoose | CountThenFetchImpossible {
+  const status = compiled.status === "ok" ? classifyQueryStatus(compiled) : compiled.status;
+  const industry = compiled.unresolved.find((item) => item.constraint === "industry");
+  const candidates = chooseCandidates(industry?.candidates ?? []);
+  const reason = firstUnresolvedReason(
+    compiled.unresolved,
+    compiled.coverage,
+    status === "choose"
+      ? "Branschfrågan är tvetydig. Välj bland candidates och anropa scb_query med industry.codes."
+      : "StructuredQuery kunde inte representeras som SCB-filter.",
+  );
+  const base = {
+    ok: false as const,
+    objectType: compiled.objectType,
+    reason,
+    candidates,
+    filters: compiled.filters,
+    resolved: compiled.resolved,
+    coverage: compiled.coverage,
+    warnings: compiled.warnings,
+    unresolved: compiled.unresolved,
+    source: QUERY_SOURCE,
+  };
+  if (status === "choose") {
+    return { status: "choose", ...base };
+  }
+  return { status: "impossible", ...base };
 }
 
 export function compileFailedError(compiled: CompileResult): ScbError {
@@ -207,7 +272,7 @@ export function compileFailedError(compiled: CompileResult): ScbError {
     },
     {
       nextAction: "retry_modified",
-      nextTools: ["scb_compile_query", "scb_lookup_codes", "scb_schema_summary"],
+      nextTools: ["scb_query", "scb_compile_query", "scb_discover", "scb_schema_summary"],
     },
   );
 }

@@ -26,10 +26,20 @@ export {
 } from "./industry.js";
 export {
   compileFailedError,
+  compileOutcomePayload,
   countThenFetch,
   withCompileContext,
+  type CountThenFetchChoose,
+  type CountThenFetchImpossible,
+  type CountThenFetchResult,
   type CountThenFetchSuccess,
 } from "./fetch.js";
+export {
+  QUERY_CHOOSE_CANDIDATE_LIMIT,
+  chooseCandidates,
+  classifyQueryStatus,
+  type QueryStatus,
+} from "./outcome.js";
 export {
   aliasRowToSemantic,
   fieldLookupNames,

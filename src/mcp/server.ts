@@ -26,12 +26,14 @@ import {
   COUNT_THEN_FETCH_DESCRIPTION,
   COUNT_COMPANIES_DESCRIPTION,
   COUNT_WORKPLACES_DESCRIPTION,
+  DISCOVER_CODES_DESCRIPTION,
   EXPLAIN_QUERY_DESCRIPTION,
   FILTER_HINTS_DESCRIPTION,
   GET_CATEGORY_VALUES_DESCRIPTION,
   LIST_CATEGORIES_DESCRIPTION,
   LIST_VARIABLES_DESCRIPTION,
   LOOKUP_CODES_DESCRIPTION,
+  QUERY_DESCRIPTION,
   SCHEMA_SUMMARY_DESCRIPTION,
   SEARCH_COMPANIES_DESCRIPTION,
   SEARCH_WORKPLACES_DESCRIPTION,
@@ -156,6 +158,16 @@ export function createMcpServer(handlers: ToolHandlers): McpServer {
   );
 
   server.registerTool(
+    "scb_discover",
+    {
+      title: "Sök SCB-koder (alias)",
+      description: DISCOVER_CODES_DESCRIPTION,
+      inputSchema: lookupCodesInputSchema.shape,
+    },
+    async (args) => handlers.scb_discover(args),
+  );
+
+  server.registerTool(
     "scb_filter_hints",
     {
       title: "Filtertips per frågeklass",
@@ -176,9 +188,19 @@ export function createMcpServer(handlers: ToolHandlers): McpServer {
   );
 
   server.registerTool(
+    "scb_query",
+    {
+      title: "StructuredQuery: räkna och hämta",
+      description: QUERY_DESCRIPTION,
+      inputSchema: countThenFetchInputSchema.shape,
+    },
+    async (args) => handlers.scb_query(args),
+  );
+
+  server.registerTool(
     "scb_count_then_fetch",
     {
-      title: "Kompilera, räkna och hämta",
+      title: "Kompilera, räkna och hämta (alias för scb_query)",
       description: COUNT_THEN_FETCH_DESCRIPTION,
       inputSchema: countThenFetchInputSchema.shape,
     },

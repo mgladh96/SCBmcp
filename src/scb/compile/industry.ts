@@ -196,9 +196,29 @@ export async function applyIndustry(
     return;
   }
 
+  if (slot.codes && slot.codes.length > 0) {
+    if (slot.query) {
+      warnings.push(`industry.query "${slot.query}" ignoreras när codes är satt.`);
+    }
+    await applyIndustryCodes(
+      slot,
+      client,
+      objectType,
+      ranked,
+      requestedLevel,
+      filters,
+      resolved,
+      coverage,
+      unresolved,
+      warnings,
+    );
+    return;
+  }
+
+  const queryText = slot.query ?? "";
   let matches: CodeLookupMatch[] = [];
   try {
-    const result = await discoverCodes(client, objectType, slot.query, {
+    const result = await discoverCodes(client, objectType, queryText, {
       kind: "industry",
       limit: DEFAULT_LOOKUP_LIMIT,
     });
@@ -211,7 +231,7 @@ export async function applyIndustry(
     }
   }
 
-  const decision = resolveIndustryCluster(matches, slot.query, slot.level);
+  const decision = resolveIndustryCluster(matches, queryText, slot.level);
   if (decision.status === "unresolved") {
     unresolved.push({
       constraint: "industry",
@@ -263,13 +283,13 @@ export async function applyIndustry(
     relation: decision.exact ? "exact" : "partial",
     exact: decision.exact,
     message: decision.exact
-      ? `"${slot.query}" → ${decision.category} ${decision.codes[0]?.code} (${decision.codes[0]?.label}), Branschniva ${branchLevel ?? "—"}.`
-      : `"${slot.query}" matchade ${decision.codes.length} SNI/branschkoder i ${decision.category} på Branschniva ${branchLevel ?? "—"} (${decision.codes.map((item) => item.code).join(", ")}).`,
+      ? `"${queryText}" → ${decision.category} ${decision.codes[0]?.code} (${decision.codes[0]?.label}), Branschniva ${branchLevel ?? "—"}.`
+      : `"${queryText}" matchade ${decision.codes.length} SNI/branschkoder i ${decision.category} på Branschniva ${branchLevel ?? "—"} (${decision.codes.map((item) => item.code).join(", ")}).`,
   });
 
   if (!decision.exact) {
     warnings.push(
-      `Branschfrågan "${slot.query}" är inte ett SCB-kodvärde; filtret kommer från discovery-träffar i ${decision.category} (${decision.reason}).`,
+      `Branschfrågan "${queryText}" är inte ett SCB-kodvärde; filtret kommer från discovery-träffar i ${decision.category} (${decision.reason}).`,
     );
   }
   if (requestedLevel !== undefined && requestedLevel !== slot.level) {
@@ -281,6 +301,143 @@ export async function applyIndustry(
     warnings.push(
       `industry.level 1 (avdelning/sektion) saknas i metadata; använde ${decision.category} koder ${decision.codes.map((item) => item.code).join(", ")}.`,
     );
+  }
+}
+
+async function applyIndustryCodes(
+  slot: NonNullable<StructuredQuery["industry"]>,
+  client: CompileMetadataSource,
+  objectType: ObjectType,
+  ranked: string[],
+  requestedLevel: number | undefined,
+  filters: ScbFilters,
+  resolved: ResolvedMappings,
+  coverage: CoverageEntry[],
+  unresolved: UnresolvedConstraint[],
+  warnings: string[],
+): Promise<void> {
+  const requestedCodes = uniqueKeepOrder((slot.codes ?? []).map((code) => code.trim()).filter((code) => code.length > 0));
+  if (requestedCodes.length === 0) {
+    const reason = "industry.codes är tom.";
+    unresolved.push({ constraint: "industry", requested: slot, reason });
+    coverage.push({
+      constraint: "industry",
+      requested: slot,
+      applied: null,
+      relation: "unrepresentable",
+      exact: false,
+      message: reason,
+    });
+    return;
+  }
+
+  if (slot.category) {
+    const folded = fold(slot.category);
+    if (!ranked.some((name) => fold(name) === folded)) {
+      const reason = `industry.category "${slot.category}" finns inte bland SCB-branschkategorier.`;
+      unresolved.push({ constraint: "industry", requested: slot, reason });
+      coverage.push({
+        constraint: "industry",
+        requested: slot,
+        applied: null,
+        relation: "unrepresentable",
+        exact: false,
+        message: reason,
+      });
+      return;
+    }
+  }
+
+  const matches: CodeLookupMatch[] = [];
+  const missing: string[] = [];
+  for (const code of requestedCodes) {
+    let found: CodeLookupMatch[] = [];
+    try {
+      const result = await discoverCodes(client, objectType, code, {
+        kind: "industry",
+        ...(slot.category ? { category: slot.category } : {}),
+        limit: DEFAULT_LOOKUP_LIMIT,
+      });
+      found = result.matches.filter((item) => fold(item.code) === fold(code));
+    } catch (error) {
+      if (error instanceof ScbError && (error.code === "SCB_UNKNOWN_CATEGORY" || error.code === "SCB_INVALID_QUERY")) {
+        found = [];
+      } else {
+        throw error;
+      }
+    }
+    if (found.length === 0) {
+      missing.push(code);
+      continue;
+    }
+    matches.push(...found);
+  }
+
+  if (missing.length > 0) {
+    const reason = `Koden${missing.length === 1 ? "" : "rna"} ${missing.map((code) => `"${code}"`).join(", ")} finns inte i SCB:s branschkatalog.`;
+    const candidates = toIndustryCandidates(matches);
+    unresolved.push({
+      constraint: "industry",
+      requested: slot,
+      reason,
+      ...(candidates.length > 0 ? { candidates } : {}),
+    });
+    coverage.push({
+      constraint: "industry",
+      requested: slot,
+      applied: { codes: requestedCodes, missing },
+      relation: "unrepresentable",
+      exact: false,
+      message: reason,
+    });
+    return;
+  }
+
+  const unique = uniqueByCode(matches);
+  const preferLevel =
+    requestedLevel ??
+    (unique.length > 0 && unique.every((item) => sniLevel(item.code) === 2) ? 2 : requestedLevel);
+  const category =
+    (slot.category && unique.some((hit) => hit.categories.some((name) => fold(name) === fold(slot.category ?? "")))
+      ? unique.flatMap((hit) => hit.categories).find((name) => fold(name) === fold(slot.category ?? ""))
+      : undefined) ?? pickCategoryForHits(unique, preferLevel);
+
+  const derivedLevel = branschLevelForCode(unique[0]?.code ?? "") ?? (requestedLevel !== undefined ? clampBranchLevel(requestedLevel) : 2);
+  const branchLevel = categoryNeedsBranchLevel(category)
+    ? (slot.branchLevel !== undefined ? clampBranchLevel(slot.branchLevel) : derivedLevel)
+    : undefined;
+
+  const codes = unique.map((hit) => ({ code: hit.code, label: hit.label }));
+  const filter: ScbFilters["categories"][number] = {
+    category,
+    values: codes.map((item) => item.code),
+  };
+  if (branchLevel !== undefined) {
+    filter.branchLevel = branchLevel;
+  }
+  filters.categories.push(filter);
+
+  const industryResolved: NonNullable<ResolvedMappings["industry"]> = { category, codes };
+  if (branchLevel !== undefined) {
+    industryResolved.branchLevel = branchLevel;
+  }
+  resolved.industry = industryResolved;
+
+  coverage.push({
+    constraint: "industry",
+    requested: slot,
+    applied: {
+      category,
+      codes,
+      ...(branchLevel !== undefined ? { branchLevel } : {}),
+    },
+    relation: "exact",
+    exact: true,
+    message: `industry.codes → ${category} ${codes.map((item) => item.code).join(", ")} (OR i samma kategori), Branschniva ${branchLevel ?? "—"}.`,
+  });
+
+  if (slot.branchLevel !== undefined && branchLevel !== undefined && clampBranchLevel(slot.branchLevel) !== branchLevel) {
+    warnings.push(`industry.branchLevel ${slot.branchLevel} klampades till Branschniva ${branchLevel}.`);
   }
 }
 

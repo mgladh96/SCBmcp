@@ -22,6 +22,8 @@ export type IndustryCandidate = {
   score?: number;
   level?: number;
   parentCode?: string;
+  /** Short agent-facing hint on choose/impossible payloads — not an applied filter. */
+  why?: string;
 };
 
 export type UnresolvedConstraint = {
@@ -85,6 +87,8 @@ export type ResolvedMappings = {
 
 export type CompileResult = {
   ok: boolean;
+  /** Agent-facing outcome: resolved filter, ambiguous industry to pick, or unrepresentable. */
+  status: "ok" | "choose" | "impossible";
   objectType: ObjectType;
   filters: ScbFilters;
   resolved: ResolvedMappings;

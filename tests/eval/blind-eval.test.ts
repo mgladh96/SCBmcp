@@ -55,7 +55,7 @@ describe("blind eval case bank", () => {
     expect(outcomes.has("success")).toBe(true);
     expect(outcomes.has("no_matches")).toBe(true);
     expect(outcomes.has("too_broad")).toBe(true);
-    expect(outcomes.has("compile_fail")).toBe(true);
+    expect(outcomes.has("choose") || outcomes.has("impossible")).toBe(true);
 
     expect(cases.some((item) => item.live === true && item.tier === "golden")).toBe(true);
   });

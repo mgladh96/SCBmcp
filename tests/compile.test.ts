@@ -33,13 +33,19 @@ function liveClient() {
 }
 
 describe("StructuredQuery schema", () => {
-  it("requires objectType and object-shaped industry", () => {
+  it("requires objectType and object-shaped industry with query or codes", () => {
     expect(structuredQuerySchema.safeParse({ industry: { query: "bygg" } }).success).toBe(false);
     expect(
       structuredQuerySchema.safeParse({ objectType: "company", industry: "bygg" }).success,
     ).toBe(false);
     expect(
+      structuredQuerySchema.safeParse({ objectType: "company", industry: {} }).success,
+    ).toBe(false);
+    expect(
       structuredQuerySchema.safeParse({ objectType: "company", industry: { query: "bygg" } }).success,
+    ).toBe(true);
+    expect(
+      structuredQuerySchema.safeParse({ objectType: "company", industry: { codes: ["41"] } }).success,
     ).toBe(true);
   });
 
@@ -250,6 +256,7 @@ describe("compileStructuredQuery golden path (live-shaped metadata)", () => {
       liveClient(),
     );
     expect(compiled.ok).toBe(false);
+    expect(compiled.status).toBe("impossible");
     const unresolved = compiled.unresolved.find((item) => item.constraint === "industry");
     expect(unresolved).toBeDefined();
     expect(unresolved?.candidates ?? []).toEqual([]);
@@ -437,6 +444,40 @@ describe("metadata-driven industry discovery (compile wraps shared search)", () 
     expect(compiled.coverage.find((item) => item.constraint === "industry")?.relation).toBe("exact");
   });
 
+  it("applies industry.codes as OR without a text query", async () => {
+    const client = createTestClient(catalogFetch(liveConstructionCatalogSpec()));
+    const compiled = await compileStructuredQuery(
+      structuredQuerySchema.parse({
+        objectType: "company",
+        industry: { codes: ["41", "42", "43"] },
+        status: "any",
+      }),
+      client,
+    );
+    expect(compiled.ok).toBe(true);
+    expect(compiled.status).toBe("ok");
+    const filter = compiled.filters.categories.find((item) => fold(item.category).includes("bransch"));
+    expect(filter?.values).toEqual(expect.arrayContaining(["41", "42", "43"]));
+    expect(filter?.values).toHaveLength(3);
+    expect(compiled.resolved.industry?.codes.map((item) => item.code)).toEqual(
+      expect.arrayContaining(["41", "42", "43"]),
+    );
+  });
+
+  it("rejects industry.codes that are not in metadata", async () => {
+    const compiled = await compileStructuredQuery(
+      structuredQuerySchema.parse({
+        objectType: "company",
+        industry: { codes: ["99999"] },
+        status: "any",
+      }),
+      liveClient(),
+    );
+    expect(compiled.ok).toBe(false);
+    expect(compiled.status).toBe("impossible");
+    expect(compiled.unresolved.some((item) => item.constraint === "industry")).toBe(true);
+  });
+
   it("noisy construction bygg without section F is unresolved with candidates", async () => {
     const client = createTestClient(catalogFetch(liveConstructionCatalogSpec()));
     const compiled = await compileStructuredQuery(
@@ -444,6 +485,7 @@ describe("metadata-driven industry discovery (compile wraps shared search)", () 
       client,
     );
     expect(compiled.ok).toBe(false);
+    expect(compiled.status).toBe("choose");
     const unresolved = compiled.unresolved.find((item) => item.constraint === "industry");
     expect(unresolved?.candidates?.some((item) => item.code === "41")).toBe(true);
     expect(unresolved?.candidates?.some((item) => item.code === "30")).toBe(true);
