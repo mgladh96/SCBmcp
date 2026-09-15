@@ -6,6 +6,7 @@ import {
   filterHintsFor,
   nearestNames,
 } from "../src/domain/catalog.js";
+import { parseEmployeeBand } from "../src/scb/compile/bands.js";
 import { extractMetadataItems, truncateMetadataItems } from "../src/scb/payload.js";
 import { compactSchemaSummary } from "../src/scb/schema-summary.js";
 import { lookupTargetCategories, searchCodeTables } from "../src/scb/code-lookup.js";
@@ -16,6 +17,7 @@ import {
   LIVE_JE_CATEGORY_LIST,
   LIVE_JE_VARIABLE_LIST,
   LIVE_LAN_KODTABELL,
+  LIVE_OMSATTNING_KODTABELL,
   LIVE_STATUS_KODTABELL,
 } from "./fixtures/live-scb-metadata.js";
 
@@ -71,6 +73,12 @@ describe("live SCB metadata field names", () => {
     });
     expect(truncated.items).toHaveLength(1);
     expect(truncated.items[0]?.name).toBe("21");
+  });
+
+  it("does not treat live Omsättningsklass tkr labels as employee bands", () => {
+    const rows = extractCodeRows(LIVE_OMSATTNING_KODTABELL);
+    expect(rows.map((row) => row.label)).toEqual(["1 - 49 tkr", "10 000 - 19 999 tkr"]);
+    expect(rows.every((row) => parseEmployeeBand(row) === undefined)).toBe(true);
   });
 });
 

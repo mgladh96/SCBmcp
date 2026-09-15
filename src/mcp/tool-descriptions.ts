@@ -108,13 +108,13 @@ export const COMPILE_QUERY_DESCRIPTION = `Kompilera StructuredQuery till SCB-fil
 
 Princip: agenten förstår användaren; SCBmcp förstår SCB. Skicka INTE { text: "..." } eller fritext. Agenten äger objectType (company=JE / workplace=AE) — servern gissar inte.
 
-industry är alltid objekt { query, level? }, aldrig en bar sträng. fields[] är semantiska id:n (name, organizationNumber, municipality, employeeCount) — inte SCB-namn som "OrgNr (10 siffror)".
+industry är alltid objekt { query, level? }, aldrig en bar sträng. level 1–3 = SCB Branschniva på Bransch (obligatorisk live; utelämnad infereras). fields[] är semantiska id:n (name, organizationNumber, municipality, employeeCount) — inte SCB-namn som "OrgNr (10 siffror)".
 
 Svar: { ok, objectType, layout, filters, resolved, coverage, warnings, unresolved }. Kompakt — ingen katalogdump.
 
 coverage[] per villkor: { constraint, requested, applied, relation, exact, message }.
 relation: exact | superset | subset | partial | unrepresentable.
-Anställda 10–15 mot SCB-klass 10–19 → superset, exact=false. Aldrig tyst "exact" vid bandapproximation.
+Anställda 10–15 mot SCB-klass 10–19 → superset, exact=false. Aldrig tyst "exact" vid bandapproximation. Aldrig Omsättningsklass för employees.
 
 Kan träffa metadata/kodtabell internt (cache). Använd scb_count_then_fetch för räkna+hämta.`;
 

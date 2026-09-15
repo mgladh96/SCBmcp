@@ -1,11 +1,19 @@
 export { SEMANTIC_ALIAS_VERSION, expandIndustryAliases, expandPlaceAliases } from "./aliases.js";
 export {
+  isMonetaryLabel,
   parseEmployeeBand,
   parseEmployeeBands,
+  parseSwedishInt,
   rangeRelation,
   selectOverlappingBands,
 } from "./bands.js";
-export { compileStructuredQuery, sniLevel } from "./compile.js";
+export {
+  BRANSCH_API_LEVEL_MAX,
+  clampBranchLevel,
+  compileStructuredQuery,
+  selectIndustryCodes,
+  sniLevel,
+} from "./compile.js";
 export {
   compileFailedError,
   countThenFetch,
@@ -18,6 +26,8 @@ export {
   resolveSemanticFields,
 } from "./fields.js";
 export {
+  categoryNeedsBranchLevel,
+  isRevenueCategory,
   pickGeographyCategory,
   pickIndustryCategory,
   pickSizeCategory,

@@ -1,30 +1,46 @@
 import type { CodeRow } from "../../domain/catalog.js";
 import type { CoverageRelation, ResolvedEmployeeBand } from "./types.js";
 
-const RANGE_RE = /(\d+)\s*[-–—]\s*(\d+)/u;
-const PLUS_RE = /(\d+)\s*\+\s*/u;
-const SINGLE_RE = /(?:^|[^\d])(\d+)\s*(?:anst|person)/iu;
+/** Swedish grouped thousands: "10 000" — not a headcount of 10. */
+const GROUPED_INT = String.raw`\d{1,3}(?:\s\d{3})+|\d+`;
+const RANGE_RE = new RegExp(`(${GROUPED_INT})\\s*[-–—]\\s*(${GROUPED_INT})`, "u");
+const PLUS_RE = new RegExp(`(${GROUPED_INT})\\s*\\+`, "u");
+const SINGLE_RE = new RegExp(`(?:^|[^\\d])(${GROUPED_INT})\\s*(?:anst|person)`, "iu");
+
+const MONETARY_RE = /(?:tkr|mkr|mdkr|kkr|\bkr\b|kronor|omsätt)/iu;
+
+/** Revenue / monetary kodtabell labels must never be parsed as headcount bands. */
+export function isMonetaryLabel(label: string): boolean {
+  return MONETARY_RE.test(label);
+}
+
+export function parseSwedishInt(raw: string): number {
+  return Number(raw.replace(/\s+/gu, ""));
+}
 
 export function parseEmployeeBand(row: CodeRow): ResolvedEmployeeBand | undefined {
   const label = row.label;
+  if (isMonetaryLabel(label)) {
+    return undefined;
+  }
   const range = RANGE_RE.exec(label);
-  if (range) {
-    const min = Number(range[1]);
-    const max = Number(range[2]);
+  if (range?.[1] && range[2]) {
+    const min = parseSwedishInt(range[1]);
+    const max = parseSwedishInt(range[2]);
     if (Number.isFinite(min) && Number.isFinite(max) && min <= max) {
       return { code: row.code, label, min, max };
     }
   }
   const plus = PLUS_RE.exec(label);
-  if (plus) {
-    const min = Number(plus[1]);
+  if (plus?.[1]) {
+    const min = parseSwedishInt(plus[1]);
     if (Number.isFinite(min)) {
       return { code: row.code, label, min, max: null };
     }
   }
   const single = SINGLE_RE.exec(label);
-  if (single) {
-    const n = Number(single[1]);
+  if (single?.[1]) {
+    const n = parseSwedishInt(single[1]);
     if (Number.isFinite(n)) {
       return { code: row.code, label, min: n, max: n };
     }

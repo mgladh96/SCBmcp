@@ -54,6 +54,15 @@ async function main(): Promise<void> {
   );
   const emp = compiled.coverage.find((item) => item.constraint === "employees");
   assert(emp?.relation === "superset" && emp.exact === false, `employee coverage ${JSON.stringify(emp)}`);
+  const sizeCat = compiled.resolved.employees?.category ?? "";
+  assert(!/omsattning/i.test(fold(sizeCat)), `employees mapped to revenue class ${sizeCat}`);
+  const industry = compiled.filters.categories.find((item) => fold(item.category).includes("bransch"));
+  assert(industry?.branchLevel !== undefined, "Bransch requires Branschniva");
+  assert(
+    (industry?.branchLevel ?? 0) >= 1 && (industry?.branchLevel ?? 0) <= 3,
+    `Branschniva out of 1–3: ${industry?.branchLevel}`,
+  );
+  assert((industry?.values.length ?? 0) <= 8, `too many industry codes: ${industry?.values.join(",")}`);
 
   const fetched = await countThenFetch(client, query);
   assert(fetched.coverage.some((item) => item.constraint === "employees"), "coverage dropped on fetch");
@@ -81,6 +90,8 @@ async function main(): Promise<void> {
         layout: compiled.resolved.layout,
         geographyCategory: geo.category,
         industryCodes: compiled.resolved.industry?.codes.map((item) => item.code),
+        industryBranchLevel: compiled.resolved.industry?.branchLevel,
+        employeeCategory: compiled.resolved.employees?.category,
         employeeCoverage: emp,
         projectedKeys: fetched.projectedFields,
         aliasNote:

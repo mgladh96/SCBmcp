@@ -12,7 +12,7 @@ Happy path (≤2 verktyg):
 1. Valfritt scb_compile_query — dry-run, coverage (t.ex. anställda 10–15 mot klass 10–19 = superset, exact=false).
 2. scb_count_then_fetch med samma StructuredQuery. Räknar, hämtar om 1≤count≤2000, projicerar semantiska fält. coverage+resolved följer med.
 
-StructuredQuery: objectType; industry: { query, level? } (alltid objekt); geography: { type: county|municipality|aregion, value }; employees: { min?, max? }; status: active|any (default active); maxRows; fields: semantiska id:n (name, organizationNumber, municipality, employeeCount) — inte SCB-namn.
+StructuredQuery: objectType; industry: { query, level? } (alltid objekt; Bransch kräver Branschniva 1–3 — utelämnad level infereras, föredra avdelning/2-siffrig); geography: { type: county|municipality|aregion, value }; employees: { min?, max? } → Anställda/Storleksklass Anställda (aldrig Omsättningsklass; 10–15 mot 10–19 = superset, exact=false); status: active|any (default active); maxRows; fields: semantiska id:n (name, organizationNumber, municipality, employeeCount) — inte SCB-namn.
 
 Manuellt/avancerat (när du behöver råa SCB-filter):
 1. scb_schema_summary för rätt objectType. Namn MÅSTE komma därifrån eller listverktygen.

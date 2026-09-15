@@ -51,7 +51,8 @@ export type MockCatalogSpec = {
 };
 
 export function catalogFetch(spec: MockCatalogSpec): FetchLike {
-  const categories = spec.categories ?? {
+  const live = spec.shape === "live";
+  const defaultCategories = {
     company: [
       "Företagsstatus",
       "Registreringsstatus",
@@ -59,6 +60,7 @@ export function catalogFetch(spec: MockCatalogSpec): FetchLike {
       "Säteskommun",
       "SätesARegion",
       "Bransch",
+      ...(live ? ["Omsättningsklass fin"] : []),
       "Storleksklass Anställda",
     ],
     workplace: [
@@ -67,10 +69,14 @@ export function catalogFetch(spec: MockCatalogSpec): FetchLike {
       "Kommun",
       "ARegion",
       "Bransch",
+      ...(live ? ["Omsättningsklass fin"] : []),
       "Storleksklass Anställda",
     ],
   };
-  const live = spec.shape === "live";
+  const categories = {
+    company: spec.categories?.company ?? defaultCategories.company,
+    workplace: spec.categories?.workplace ?? defaultCategories.workplace,
+  };
   const variables = spec.variables ?? {
     company: live
       ? ["Företagsnamn", "Firma", "OrgNr (10 siffror)", "OrgNr (12 siffror)"]
@@ -79,7 +85,7 @@ export function catalogFetch(spec: MockCatalogSpec): FetchLike {
       ? ["Benämning", "CfarNr", "OrgNr (12 siffror)"]
       : ["Benämning", "CfarNr", "PeOrgNr"],
   };
-  const tables = spec.tables ?? {
+  const defaultTables: Record<string, Array<{ code: string; label: string }>> = {
     Företagsstatus: [
       { code: "1", label: "verksam" },
       { code: "0", label: "aldrig verksam" },
@@ -109,12 +115,43 @@ export function catalogFetch(spec: MockCatalogSpec): FetchLike {
       { code: "5", label: "20-49 anställda" },
       { code: "6", label: "50-99 anställda" },
     ],
-    Bransch: [
-      { code: "F", label: "Byggverksamhet" },
-      { code: "41", label: "Byggande av hus" },
-      { code: "62010", label: "Dataprogrammering" },
+    Anställda: [
+      { code: "0", label: "0 anställda" },
+      { code: "1", label: "1-4 anställda" },
+      { code: "2", label: "5-9 anställda" },
+      { code: "4", label: "10-19 anställda" },
+      { code: "5", label: "20-49 anställda" },
+      { code: "6", label: "50-99 anställda" },
     ],
+    "Omsättningsklass fin": [
+      { code: "01", label: "1 - 49 tkr" },
+      { code: "04", label: "10 000 - 19 999 tkr" },
+      { code: "05", label: "20 000 - 49 999 tkr" },
+    ],
+    Bransch: live
+      ? [
+          { code: "F", label: "Byggverksamhet" },
+          { code: "41", label: "Byggande av hus" },
+          { code: "42", label: "Anläggningsarbeten" },
+          { code: "43", label: "Specialiserad bygg- och anläggningsverksamhet" },
+          { code: "41200", label: "Byggande av bostadshus" },
+          { code: "41201", label: "Byggande av andra hus" },
+          { code: "42110", label: "Anläggning av vägar och motorvägar" },
+          { code: "42990", label: "Övrig bygg- och anläggningsverksamhet" },
+          { code: "43120", label: "Mark- och grundarbeten för byggverksamhet" },
+          { code: "43210", label: "Elinstallationer i bygg" },
+          { code: "43310", label: "Puts-, fasad- och stuckatörsverksamhet" },
+          { code: "43910", label: "Takarbeten inom bygg" },
+          { code: "43999", label: "Annan specialiserad byggverksamhet" },
+          { code: "62010", label: "Dataprogrammering" },
+        ]
+      : [
+          { code: "F", label: "Byggverksamhet" },
+          { code: "41", label: "Byggande av hus" },
+          { code: "62010", label: "Dataprogrammering" },
+        ],
   };
+  const tables = { ...defaultTables, ...spec.tables };
 
   return async (url, init) => {
     const path = new URL(url).pathname;

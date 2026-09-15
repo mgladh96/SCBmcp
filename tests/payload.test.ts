@@ -85,6 +85,21 @@ describe("SCB query payload", () => {
     });
   });
 
+  it("serializes Bransch branchLevel as Branschniva", () => {
+    expect(
+      toScbQueryBody({
+        categories: [
+          { category: "Företagsstatus", values: ["1"] },
+          { category: "Bransch", values: ["F"], branchLevel: 1 },
+        ],
+        variables: [],
+      }),
+    ).toEqual({
+      Företagsstatus: "1",
+      Kategorier: [{ Kategori: "Bransch", Kod: ["F"], Branschniva: 1 }],
+    });
+  });
+
   it("can serialize AE status as Kategorier when SCB_AE_STATUS_TOP_LEVEL=false", () => {
     const previous = process.env.SCB_AE_STATUS_TOP_LEVEL;
     process.env.SCB_AE_STATUS_TOP_LEVEL = "false";

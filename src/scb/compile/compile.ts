@@ -14,6 +14,8 @@ import {
 } from "./bands.js";
 import { resolveSemanticFields } from "./fields.js";
 import {
+  categoryNeedsBranchLevel,
+  isRevenueCategory,
   pickGeographyCategory,
   pickIndustryCategory,
   pickSizeCategory,
@@ -255,7 +257,8 @@ async function applyIndustry(
     return;
   }
 
-  const category = pickIndustryCategory(categoryNames);
+  const requestedLevel = slot.level !== undefined ? clampBranchLevel(slot.level) : undefined;
+  const category = pickIndustryCategory(categoryNames, slot.level);
   if (!category) {
     const reason = "Ingen bransch/SNI-kategori i SCB-katalogen.";
     unresolved.push({ constraint: "industry", requested: slot, reason });
@@ -281,9 +284,9 @@ async function applyIndustry(
     codes = uniqueCodes(matches);
   }
 
-  if (slot.level !== undefined) {
-    codes = codes.filter((item) => sniLevel(item.code) === slot.level);
-  }
+  const aliases = expandIndustryAliases(slot.query);
+  const selected = selectIndustryCodes(codes, slot.level, aliases);
+  codes = selected.codes;
 
   if (codes.length === 0) {
     unresolved.push({
@@ -305,41 +308,49 @@ async function applyIndustry(
     return;
   }
 
+  const branchLevel =
+    categoryNeedsBranchLevel(category) || slot.level !== undefined ? selected.branchLevel : undefined;
+
   const filter: ScbFilters["categories"][number] = {
     category,
     values: codes.map((item) => item.code),
   };
-  if (slot.level !== undefined) {
-    filter.branchLevel = slot.level;
+  if (branchLevel !== undefined) {
+    filter.branchLevel = branchLevel;
   }
   filters.categories.push(filter);
 
   const industryResolved: NonNullable<ResolvedMappings["industry"]> = { category, codes };
-  if (slot.level !== undefined) {
-    industryResolved.branchLevel = slot.level;
+  if (branchLevel !== undefined) {
+    industryResolved.branchLevel = branchLevel;
   }
   resolved.industry = industryResolved;
 
   const exact =
     codes.length === 1 &&
-    expandIndustryAliases(slot.query).some(
+    aliases.some(
       (alias) => fold(alias) === fold(codes[0]?.label ?? "") || fold(alias) === fold(codes[0]?.code ?? ""),
     );
 
   coverage.push({
     constraint: "industry",
     requested: slot,
-    applied: { category, codes, ...(slot.level !== undefined ? { branchLevel: slot.level } : {}) },
+    applied: { category, codes, ...(branchLevel !== undefined ? { branchLevel } : {}) },
     relation: exact ? "exact" : "partial",
     exact,
     message: exact
-      ? `"${slot.query}" → ${category} ${codes[0]?.code} (${codes[0]?.label}).`
-      : `"${slot.query}" matchade ${codes.length} SNI/branschkoder i ${category} (${codes.map((item) => item.code).join(", ")}).`,
+      ? `"${slot.query}" → ${category} ${codes[0]?.code} (${codes[0]?.label}), Branschniva ${branchLevel ?? "—"}.`
+      : `"${slot.query}" matchade ${codes.length} SNI/branschkoder i ${category} på Branschniva ${branchLevel ?? "—"} (${codes.map((item) => item.code).join(", ")}).`,
   });
 
   if (!exact) {
     warnings.push(
       `Branschfrågan "${slot.query}" är inte ett SCB-kodvärde; den expanderades mot kodtabellen ${category}.`,
+    );
+  }
+  if (requestedLevel !== undefined && requestedLevel !== slot.level) {
+    warnings.push(
+      `industry.level ${slot.level} klampades till Branschniva ${requestedLevel} (SCB Bransch tillåter 1–3).`,
     );
   }
 }
@@ -377,7 +388,7 @@ async function applyEmployees(
   }
 
   const category = pickSizeCategory(categoryNames);
-  if (!category) {
+  if (!category || isRevenueCategory(category)) {
     const reason = "Ingen storleksklass för anställda i SCB-katalogen.";
     unresolved.push({ constraint: "employees", requested: slot, reason });
     coverage.push({
@@ -545,6 +556,14 @@ function uniqueCodes(matches: Array<{ code: string; label: string }>): ResolvedC
   return codes;
 }
 
+export const BRANSCH_API_LEVEL_MIN = 1;
+export const BRANSCH_API_LEVEL_MAX = 3;
+const MAX_INDUSTRY_CODES = 8;
+
+export function clampBranchLevel(level: number): number {
+  return Math.min(BRANSCH_API_LEVEL_MAX, Math.max(BRANSCH_API_LEVEL_MIN, Math.trunc(level)));
+}
+
 export function sniLevel(code: string): number | undefined {
   const trimmed = code.trim();
   if (/^[A-Za-z]$/u.test(trimmed)) {
@@ -563,4 +582,95 @@ export function sniLevel(code: string): number | undefined {
     return 5;
   }
   return undefined;
+}
+
+/** SCB Branschniva on category Bransch is 1–3 (letter→1, 2-digit→2, 3+→3). */
+export function branschLevelForCode(code: string): number | undefined {
+  const level = sniLevel(code);
+  if (level === undefined) {
+    return undefined;
+  }
+  return clampBranchLevel(level);
+}
+
+type AnnotatedIndustryCode = ResolvedCode & { sni: number | undefined; api: number | undefined };
+
+/**
+ * Prefer a single Branschniva and fewer, coarser SNI codes.
+ * Bare { query: "bygg" } should yield section F (level 1) rather than 25 five-digit substring hits.
+ */
+export function selectIndustryCodes(
+  codes: ResolvedCode[],
+  requestedLevel: number | undefined,
+  aliases: string[],
+): { codes: ResolvedCode[]; branchLevel: number } {
+  const annotated: AnnotatedIndustryCode[] = codes.map((item) => ({
+    ...item,
+    sni: sniLevel(item.code),
+    api: branschLevelForCode(item.code),
+  }));
+
+  if (requestedLevel !== undefined) {
+    const apiLevel = clampBranchLevel(requestedLevel);
+    let filtered = annotated.filter((item) => item.sni === requestedLevel);
+    if (filtered.length === 0 && apiLevel === BRANSCH_API_LEVEL_MAX) {
+      filtered = annotated.filter((item) => (item.sni ?? 0) >= BRANSCH_API_LEVEL_MAX);
+    }
+    if (filtered.length === 0) {
+      filtered = annotated.filter((item) => item.api === apiLevel);
+    }
+    return { codes: uniqueCodes(filtered), branchLevel: apiLevel };
+  }
+
+  const aliasFold = new Set(aliases.map((alias) => fold(alias)));
+  const exact = annotated.filter(
+    (item) => aliasFold.has(fold(item.label)) || aliasFold.has(fold(item.code)),
+  );
+  if (exact.length > 0) {
+    return takeCoarsestLevel(exact);
+  }
+
+  const level1 = annotated.filter((item) => item.api === 1);
+  if (level1.length > 0) {
+    return { codes: uniqueCodes(level1), branchLevel: 1 };
+  }
+  const level2 = annotated.filter((item) => item.api === 2);
+  if (level2.length > 0) {
+    return { codes: uniqueCodes(level2), branchLevel: 2 };
+  }
+
+  const collapsed = collapseToTwoDigit(annotated);
+  if (collapsed.length > 0 && collapsed.length < annotated.length) {
+    return { codes: collapsed, branchLevel: 2 };
+  }
+
+  return {
+    codes: uniqueCodes(annotated.filter((item) => (item.api ?? 0) >= 3).slice(0, MAX_INDUSTRY_CODES)),
+    branchLevel: 3,
+  };
+}
+
+function takeCoarsestLevel(codes: AnnotatedIndustryCode[]): { codes: ResolvedCode[]; branchLevel: number } {
+  const levels = codes.map((item) => item.api).filter((level): level is number => level !== undefined);
+  const coarsest = levels.length > 0 ? Math.min(...levels) : 2;
+  const atLevel = codes.filter((item) => (item.api ?? coarsest) === coarsest);
+  return { codes: uniqueCodes(atLevel), branchLevel: clampBranchLevel(coarsest) };
+}
+
+function collapseToTwoDigit(codes: AnnotatedIndustryCode[]): ResolvedCode[] {
+  const seen = new Set<string>();
+  const out: ResolvedCode[] = [];
+  for (const item of codes) {
+    const digits = item.code.replace(/\D/gu, "");
+    if (digits.length < 2) {
+      continue;
+    }
+    const two = digits.slice(0, 2);
+    if (seen.has(two)) {
+      continue;
+    }
+    seen.add(two);
+    out.push({ code: two, label: `${two} (${item.label})` });
+  }
+  return out;
 }

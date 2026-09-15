@@ -55,10 +55,15 @@ export function classifyCategoryKind(name: string): CategoryKind {
   ) {
     return "industry";
   }
+  // Revenue classes are not employee size — never treat Omsättning* as "size".
+  if (n.includes("omsattning")) {
+    return "other";
+  }
   if (
     n.includes("storleksklass") ||
     n.includes("anstsme") ||
-    (n.includes("omsattning") && n.includes("klass"))
+    n.includes("anstalld") ||
+    (n.includes("anst") && n.includes("klass"))
   ) {
     return "size";
   }
