@@ -187,7 +187,7 @@ Filterkontrakt (nära SCB, inte ett DSL för naturligt språk):
 
 Använd **kategori- och variabelnamn som SCB returnerar dem** från `scb_schema_summary` eller listverktygen (`items[].name`). Hårdkoda inte ett eget schema.
 
-Live `koptakategorier` (bekräftat mot privateapi.scb.se med mTLS) har **inga** fält `Kategori`/`Namn` på raderna. Namnet ligger i `Id_Kategori_JE` (JE) eller `Id_Kategori_AE` (AE); en AE-lista kan innehålla båda. Variabler kan använda `Id_Variabel_JE` / `Id_Variabel_AE` / `Id_Variabel`. Kodtabellrader är `{ "Varde": "21", "Text": "Gävleborg" }` — koden är `Varde`, etiketten är `Text`. `scb_lookup_codes` matchar etiketten och returnerar koden (`21`), inte etiketten som kod. Äldre nycklar (`Kategori`, `Variabel`, `Kod`, …) stöds fortfarande.
+Live `koptakategorier` (bekräftat mot privateapi.scb.se med mTLS) har **inga** fält `Kategori`/`Namn` på raderna. Namnet ligger i `Id_Kategori_JE` (JE) eller `Id_Kategori_AE` (AE); en AE-lista kan innehålla båda. Variabellistor använder `Id_Variabel_JE` / `Id_Variabel_AE` / `Id_Variabel` (t.ex. `{ "Id_Variabel_JE": "OrgNr (12 siffror)", "TillaggsGrupp": "BasUtbud" }`). Live JE-orgnr heter exakt `OrgNr (10 siffror)` och `OrgNr (12 siffror)` — **inte** `PeOrgNr` (SCB 400). Kodtabellrader är `{ "Varde": "21", "Text": "Gävleborg" }` — koden är `Varde`, etiketten är `Text`. `scb_lookup_codes` matchar etiketten och returnerar koden (`21`), inte etiketten som kod. Äldre nycklar (`Kategori`, `Variabel`, `Kod`, …) stöds fortfarande.
 
 ### Operatorer (allowlist)
 
@@ -249,20 +249,20 @@ Svarskuvert:
 - `returned` — rader i `results` efter `maxRows`
 - `omittedByMaxRows` — `fetched − returned` när MCP klippte; **inte** `count − returned`
 
-### Identitet (PeOrgNr / OrgNr / CfarNr)
+### Identitet (`OrgNr (10 siffror)` / `OrgNr (12 siffror)` / CfarNr)
 
-Inget eget lookup-verktyg. Använd `variables[]` med operator **`ArLikaMed`**.
+Inget eget lookup-verktyg. Använd `variables[]` med operator **`ArLikaMed`**. Live JE-variabler (koptavariabler, `Id_Variabel_JE`) heter exakt **`OrgNr (10 siffror)`** och **`OrgNr (12 siffror)`**. `PeOrgNr` saknas live (SCB 400: "Variabeln PeOrgNr kan inte hittas.") men känns fortfarande igen som alias i identitetssockret.
 
-| Form | Regel |
+| Live variabel | Regel |
 | --- | --- |
-| Organisationsnummer, 10 siffror | Månadsdelen (position 3–4) ≥ 20. Normaliseras till PeOrgNr = `16` + 10 siffror. Luhn-kontroll. |
-| PeOrgNr, 12 siffror | `16` + orgnr (juridisk person) eller `19`/`20` + personnummer (enskild näringsidkare). |
-| OrgNr (10 siffror) | Behåller 10 siffror; 12-siffrigt med prefix 16/19/20 kapas. |
+| `OrgNr (10 siffror)` | Behåller 10 siffror. 12-siffrigt med prefix 16/19/20 kapas. Luhn-kontroll. |
+| `OrgNr (12 siffror)` | 10-siffrigt organisationsnummer (månadsdelen position 3–4 ≥ 20) → prefix `16`. 12-siffrigt `16` + orgnr (juridisk person) eller `19`/`20` + personnummer behålls. |
 | CfarNr | 8 siffror, SCB-tilldelat arbetsställenummer. |
+| PeOrgNr (alias) | Samma 12-siffriga normalisering som `OrgNr (12 siffror)`. Skicka inte till SCB live på JE. |
 
 Bindestreck och blanksteg strippas. 10-siffriga värden med månad 01–12 avvisas som personnummer-lika (ange 12 siffror med sekel). Månad 13–19 är skräp (organisationsnummer har månad ≥ 20). Skräp (bokstäver, fel längd, dålig kontrollsiffra) ger `SCB_INVALID_QUERY` utan SCB-anrop.
 
-Personnummer-lika PeOrgNr loggas inte i klartext.
+Personnummer-lika identitetsvärden loggas inte i klartext.
 
 ### `scb_explain_query` (dry-run)
 

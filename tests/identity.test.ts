@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  identityKindForVariable,
+  LIVE_JE_ORGNR_10,
+  LIVE_JE_ORGNR_12,
   luhn10,
   normalizeCfarNr,
   normalizeIdentityInFilters,
@@ -60,6 +63,44 @@ describe("PeOrgNr 10↔12", () => {
     );
     expect(prepared.error).toBeUndefined();
     expect(prepared.filters.variables[0]?.value).toBe(ORG10);
+  });
+});
+
+describe("live JE OrgNr (10 siffror) / OrgNr (12 siffror)", () => {
+  it("classifies live names and keeps PeOrgNr as a 12-digit alias", () => {
+    expect(identityKindForVariable(LIVE_JE_ORGNR_10, "company")).toBe("orgNr10");
+    expect(identityKindForVariable(LIVE_JE_ORGNR_12, "company")).toBe("orgNr12");
+    expect(identityKindForVariable("PeOrgNr", "company")).toBe("peOrgNr");
+    expect(identityKindForVariable("CfarNr", "workplace")).toBe("cfarNr");
+  });
+
+  it("pads 10-digit orgnr for OrgNr (12 siffror) and keeps 10 for OrgNr (10 siffror)", () => {
+    const twelve = normalizeIdentityInFilters(
+      {
+        categories: [],
+        variables: [{ variable: LIVE_JE_ORGNR_12, operator: "ArLikaMed", value: "556074-7569" }],
+      },
+      "company",
+    );
+    expect(twelve.error).toBeUndefined();
+    expect(twelve.filters.variables[0]?.value).toBe(PEORG12);
+    expect(twelve.changes[0]).toMatchObject({
+      variable: LIVE_JE_ORGNR_12,
+      kind: "orgNr12",
+      fromLength: 10,
+      toLength: 12,
+    });
+
+    const ten = normalizeIdentityInFilters(
+      {
+        categories: [],
+        variables: [{ variable: LIVE_JE_ORGNR_10, operator: "ArLikaMed", value: "556074-7569" }],
+      },
+      "company",
+    );
+    expect(ten.error).toBeUndefined();
+    expect(ten.filters.variables[0]?.value).toBe(ORG10);
+    expect(ten.filters.variables[0]?.value).toHaveLength(10);
   });
 });
 

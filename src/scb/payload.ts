@@ -134,7 +134,8 @@ const METADATA_ARRAY_KEYS = [
 
 /**
  * Live privateapi.scb.se (mTLS) uses Id_Kategori_JE / Id_Kategori_AE on category
- * list rows — there is no Kategori/Namn field. Variables may use Id_Variabel_*.
+ * list rows — there is no Kategori/Namn field. Variables use Id_Variabel_JE /
+ * Id_Variabel_AE (e.g. OrgNr (12 siffror)) — there is no Variabel/Namn field.
  * Kodtabell rows use Varde (code) + Text (label), not Kod.
  * Older keys stay for backward compatibility with docs/examples and mocks.
  */

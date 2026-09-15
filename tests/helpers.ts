@@ -55,9 +55,14 @@ export function catalogFetch(spec: MockCatalogSpec): FetchLike {
     company: ["Företagsstatus", "Registreringsstatus", "Säteslän", "Säteskommun", "Bransch", "Storleksklass Anställda"],
     workplace: ["Arbetsställestatus", "Län", "Kommun", "Bransch", "Storleksklass Anställda"],
   };
+  const live = spec.shape === "live";
   const variables = spec.variables ?? {
-    company: ["Företagsnamn", "Firma", "PeOrgNr", "OrgNr"],
-    workplace: ["Benämning", "CfarNr", "PeOrgNr"],
+    company: live
+      ? ["Företagsnamn", "Firma", "OrgNr (10 siffror)", "OrgNr (12 siffror)"]
+      : ["Företagsnamn", "Firma", "PeOrgNr", "OrgNr"],
+    workplace: live
+      ? ["Benämning", "CfarNr", "OrgNr (12 siffror)"]
+      : ["Benämning", "CfarNr", "PeOrgNr"],
   };
   const tables = spec.tables ?? {
     Företagsstatus: [
@@ -81,8 +86,6 @@ export function catalogFetch(spec: MockCatalogSpec): FetchLike {
       { code: "62010", label: "Dataprogrammering" },
     ],
   };
-
-  const live = spec.shape === "live";
 
   return async (url, init) => {
     const path = new URL(url).pathname;

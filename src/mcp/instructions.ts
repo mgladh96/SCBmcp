@@ -18,7 +18,7 @@ Anti-mönster:
 - Operatorer är SCB-enum: Innehaller, ArLikaMed, BorjarPa, Mellan, FranOchMed, TillOchMed, Finns, FinnsInte — inte Contains/Equals.
 - AnstSME ≠ Storleksklass Anställda. Använd namnet listverktyget returnerar.
 - Behåll fältet Reklam; kringgå inte reklamspärr. Search projicerar fält i MCP; Reklam strippas aldrig.
-- Org.nr: 10 siffror (organisationsnummer) normaliseras till PeOrgNr 16+10. CFAR är 8 siffror, operator ArLikaMed.
+- Org.nr: live JE-namn är OrgNr (10 siffror) och OrgNr (12 siffror), inte PeOrgNr. 10 siffror på 12-siffriga fältet → prefix 16. CFAR är 8 siffror, operator ArLikaMed.
 - Ingen historik i detta API.
 - Kvot: 10 anrop / 10 sekunder. Vid SCB_RATE_LIMITED: vänta retryAfterMs och upprepa samma anrop (retry_same). Servern väntar inte tyst.
 

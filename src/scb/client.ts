@@ -4,7 +4,7 @@ import { apiIdHeaders, createScbDispatcher, type ScbAuthConfig, validateCertConf
 import { TtlCache } from "./cache.js";
 import { lookupCategoryGroups, searchCodeTables, type CodeLookupResult } from "./code-lookup.js";
 import { countPath, endpointsFor, searchPath } from "./endpoints.js";
-import { normalizeIdentityInFilters } from "./identity.js";
+import { identityInvalidErrorDetails, normalizeIdentityInFilters } from "./identity.js";
 import { isAllowedOperator } from "./operators.js";
 import {
   extractMetadataItems,
@@ -339,12 +339,7 @@ export class ScbClient {
   private prepareFilters(objectType: ObjectType, filters: ScbFilters): ScbFilters {
     const identity = normalizeIdentityInFilters(filters, objectType);
     if (identity.error) {
-      throw new ScbError("SCB_INVALID_QUERY", identity.error, false, {
-        field: "filters.variables.value",
-        origin: "identity",
-        suggestion:
-          "Använd 10-siffrigt organisationsnummer eller 12-siffrigt PeOrgNr (16+orgnr). CFAR är 8 siffror. Operator ArLikaMed.",
-      });
+      throw new ScbError("SCB_INVALID_QUERY", identity.error, false, identityInvalidErrorDetails(identity.error));
     }
     return identity.filters;
   }

@@ -1,6 +1,7 @@
 /**
  * Shapes confirmed against live privateapi.scb.se (mTLS).
  * Category list rows use Id_Kategori_JE / Id_Kategori_AE — no Kategori/Namn.
+ * Variable list rows use Id_Variabel_JE / Id_Variabel_AE — e.g. OrgNr (12 siffror).
  * Kodtabell rows use Varde (code) + Text (label) — not Kod.
  */
 
@@ -32,19 +33,19 @@ export const LIVE_JE_CATEGORY_LIST = {
 
 export const LIVE_AE_VARIABLE_LIST = {
   Variabler: [
-    { Id_Variabel_AE: "Benämning" },
-    { Id_Variabel_AE: "CfarNr" },
-    { Id_Variabel_JE: "PeOrgNr" },
-    { Id_Variabel: "BesöksPostOrt" },
+    { Id_Variabel_AE: "Benämning", TillaggsGrupp: "BasUtbud" },
+    { Id_Variabel_AE: "CfarNr", TillaggsGrupp: "BasUtbud" },
+    { Id_Variabel_JE: "OrgNr (12 siffror)", TillaggsGrupp: "BasUtbud" },
+    { Id_Variabel: "BesöksPostOrt", TillaggsGrupp: "BasUtbud" },
   ],
 };
 
 export const LIVE_JE_VARIABLE_LIST = {
   Variabler: [
-    { Id_Variabel_JE: "Företagsnamn" },
-    { Id_Variabel_JE: "Firma" },
-    { Id_Variabel_JE: "PeOrgNr" },
-    { Id_Variabel_AE: "OrgNr" },
+    { Id_Variabel_JE: "Företagsnamn", TillaggsGrupp: "BasUtbud" },
+    { Id_Variabel_JE: "Firma", TillaggsGrupp: "BasUtbud" },
+    { Id_Variabel_JE: "OrgNr (10 siffror)", TillaggsGrupp: "BasUtbud" },
+    { Id_Variabel_JE: "OrgNr (12 siffror)", TillaggsGrupp: "BasUtbud" },
   ],
 };
 

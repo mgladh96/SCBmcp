@@ -23,11 +23,14 @@ export const LIST_VARIABLES_DESCRIPTION = `Lista fritextvariabler (inte kodtabel
 
 Svar: { objectType, items: [{ name, ... }], raw }. Använd items[].name som variable i filter.
 
+Live JE-rader har Id_Variabel_JE (ingen Variabel/Namn). Org.nr heter exakt "OrgNr (10 siffror)" och "OrgNr (12 siffror)" — inte PeOrgNr (SCB 400). PeOrgNr/CfarNr känns igen som alias i identitetssockret.
+
 Operatorer är SCB-enum: Innehaller, ArLikaMed, BorjarPa, Mellan, FranOchMed, TillOchMed, Finns, FinnsInte — inte Contains/Equals. Kontrollera ev. värdedomän med includeValueMetadata.
 
 Anti-mönster:
 - Firma vs Företagsnamn (JE) vs Benämning (AE) är olika fält.
-- AnstSME är inte samma sak som kategorin Storleksklass Anställda.`;
+- AnstSME är inte samma sak som kategorin Storleksklass Anställda.
+- Skicka inte PeOrgNr live på JE.`;
 
 export const COUNT_COMPANIES_DESCRIPTION = `Räkna juridiska enheter (JE) som matchar SCB-filter. Använd för att iterera — search räknar redan internt.
 
@@ -43,11 +46,11 @@ export const SEARCH_COMPANIES_DESCRIPTION = `Hämta juridiska enheter (JE). Räk
 
 SCB-kostnad: search hämtar hela resultatmängden från SCB (efter 2000-vakten). fields[] och maxRows krymper bara vad agenten ser — de minskar inte hamta-anropet. Räkna först och smalna filter innan search.
 
-Valfritt fields[] och maxRows (standard 75, högst 2000). Standardfält: PeOrgNr, namn, status, geografi, SNI/bransch, storleksklass, Reklam. Reklam strippas aldrig.
+Valfritt fields[] och maxRows (standard 75, högst 2000). Standardfält: orgnr, namn, status, geografi, SNI/bransch, storleksklass, Reklam. Reklam strippas aldrig.
 
 Filter: categories[] och variables[] med SCB-namn från listverktygen. Operatorer: Innehaller, ArLikaMed, m.fl. (allowlist). branchLevel = SCB Branschniva, bara på bransch/SNI.
 JE-geografi = säte (Säteslän), inte Län. Namn "Bygg" ≠ SNI.
-Org.nr: 10 eller 12 siffror; 10-siffrigt organisationsnummer → PeOrgNr med prefix 16. Operator ArLikaMed.
+Org.nr: live JE-variabler heter OrgNr (10 siffror) och OrgNr (12 siffror) — inte PeOrgNr. 10-siffrigt organisationsnummer på 12-siffriga fältet → prefix 16. 10-siffriga fältet behåller 10. Operator ArLikaMed.
 
 Svarskuvert: { count, fetched, returned, omittedByMaxRows?, results, filters, warnings?, source }.
 count = SCB-population. fetched = rader i hamta-svaret. returned = rader i results. omittedByMaxRows = fetched−returned när maxRows klippte.
@@ -66,7 +69,7 @@ export const SEARCH_WORKPLACES_DESCRIPTION = `Hämta arbetsställen (AE). Räkna
 
 SCB-kostnad: search hämtar hela resultatmängden från SCB (efter 2000-vakten). fields[] och maxRows krymper bara agentvyn. Räkna först och smalna filter innan search.
 
-Valfritt fields[] och maxRows (standard 75, högst 2000). Standardfält: CfarNr, PeOrgNr, namn, status, geografi, SNI, storleksklass, Reklam. Reklam strippas aldrig.
+Valfritt fields[] och maxRows (standard 75, högst 2000). Standardfält: CfarNr, orgnr, namn, status, geografi, SNI, storleksklass, Reklam. Reklam strippas aldrig.
 Gävleborg är AE Län när frågan gäller belägenhet. Namn "Bygg" ≠ SNI. Operatorer är SCB-enum (Innehaller, ArLikaMed, …).
 Storleksklass Anställda ≠ AnstSME. branchLevel = Branschniva, bara på bransch.
 CfarNr är 8 siffror, operator ArLikaMed.

@@ -9,7 +9,7 @@ import {
 import { extractMetadataItems, truncateMetadataItems } from "../src/scb/payload.js";
 import { compactSchemaSummary } from "../src/scb/schema-summary.js";
 import { lookupTargetCategories, searchCodeTables } from "../src/scb/code-lookup.js";
-import { catalogFetch, createTestClient } from "./helpers.js";
+import { catalogFetch, createTestClient, jsonResponse } from "./helpers.js";
 import {
   LIVE_AE_CATEGORY_LIST,
   LIVE_AE_VARIABLE_LIST,
@@ -45,14 +45,14 @@ describe("live SCB metadata field names", () => {
     expect(extractMetadataItems(LIVE_AE_VARIABLE_LIST).map((item) => item.name)).toEqual([
       "Benämning",
       "CfarNr",
-      "PeOrgNr",
+      "OrgNr (12 siffror)",
       "BesöksPostOrt",
     ]);
     expect(extractMetadataItems(LIVE_JE_VARIABLE_LIST).map((item) => item.name)).toEqual([
       "Företagsnamn",
       "Firma",
-      "PeOrgNr",
-      "OrgNr",
+      "OrgNr (10 siffror)",
+      "OrgNr (12 siffror)",
     ]);
   });
 
@@ -90,7 +90,7 @@ describe("live catalog consumers", () => {
     );
     expect(summary.categories.every((item) => item.name.length > 0)).toBe(true);
     expect(summary.variables.map((item) => item.name)).toEqual(
-      expect.arrayContaining(["Benämning", "CfarNr", "PeOrgNr"]),
+      expect.arrayContaining(["Benämning", "CfarNr", "OrgNr (12 siffror)"]),
     );
     const lan = summary.categories.find((item) => item.name === "Län");
     expect(lan?.kind).toBe("geography");
@@ -140,6 +140,22 @@ describe("live catalog consumers", () => {
     );
     expect(hints[0]?.recommendedVariables).toContain("BesöksPostOrt");
     expect(hints[0]?.defaultStatus?.category).toBe("Arbetsställestatus");
+  });
+
+  it("binds organization_number hints to live OrgNr (10/12 siffror), not PeOrgNr", () => {
+    const variableNames = extractMetadataItems(LIVE_JE_VARIABLE_LIST)
+      .map((item) => item.name)
+      .filter((name) => name.length > 0);
+    const hints = filterHintsFor("company", "organization_number", { variableNames });
+    expect(hints[0]?.recommendedVariables).toEqual(
+      expect.arrayContaining(["OrgNr (10 siffror)", "OrgNr (12 siffror)"]),
+    );
+    expect(hints[0]?.recommendedVariables).not.toContain("PeOrgNr");
+    const summary = compactSchemaSummary("company", LIVE_JE_CATEGORY_LIST, LIVE_JE_VARIABLE_LIST);
+    expect(summary.variables.map((item) => item.name)).toEqual(
+      expect.arrayContaining(["OrgNr (10 siffror)", "OrgNr (12 siffror)"]),
+    );
+    expect(summary.variables.find((item) => item.name === "OrgNr (12 siffror)")?.kind).toBe("identity");
   });
 });
 
@@ -195,5 +211,40 @@ describe("MCP tools with live-shaped catalog payloads", () => {
     expect(payload.items.map((item) => item.name)).toEqual(
       expect.arrayContaining(["Företagsstatus", "Säteslän"]),
     );
+  });
+
+  it("lists JE variables from Id_Variabel_JE as OrgNr (10/12 siffror), not PeOrgNr", async () => {
+    const handlers = createToolHandlers(createTestClient(catalogFetch({ shape: "live" })), silent);
+    const listed = await handlers.scb_list_variables({ objectType: "company" });
+    const payload = JSON.parse(listed.content[0]?.text ?? "{}") as { items: Array<{ name: string }> };
+    expect(payload.items.map((item) => item.name)).toEqual(
+      expect.arrayContaining(["OrgNr (10 siffror)", "OrgNr (12 siffror)"]),
+    );
+    expect(payload.items.map((item) => item.name)).not.toContain("PeOrgNr");
+  });
+
+  it("normalizes 10-digit orgnr on OrgNr (12 siffror) before the SCB POST", async () => {
+    const bodies: unknown[] = [];
+    const handlers = createToolHandlers(
+      createTestClient(async (url, init) => {
+        if (init.body) {
+          bodies.push(JSON.parse(init.body));
+        }
+        if (url.includes("raknaforetag")) {
+          return jsonResponse(200, 1);
+        }
+        return jsonResponse(200, [{ "OrgNr (12 siffror)": "165560747569", Reklam: "11" }]);
+      }),
+      silent,
+    );
+    const result = await handlers.scb_search_companies({
+      filters: {
+        variables: [{ variable: "OrgNr (12 siffror)", operator: "ArLikaMed", value: "556074-7569" }],
+      },
+    });
+    expect(result.isError).toBeUndefined();
+    expect(bodies[0]).toMatchObject({
+      variabler: [{ Variabel: "OrgNr (12 siffror)", Operator: "ArLikaMed", Varde1: "165560747569" }],
+    });
   });
 });

@@ -410,9 +410,9 @@ export const FILTER_HINTS: FilterHint[] = [
     questionClass: "organization_number",
     objectType: "both",
     recommendedCategories: [],
-    recommendedVariables: ["PeOrgNr", "OrgNr", "CfarNr"],
+    recommendedVariables: ["OrgNr (12 siffror)", "OrgNr (10 siffror)", "CfarNr"],
     notes:
-      "Exakt operator ArLikaMed. 10-siffrigt org.nr → PeOrgNr (prefix 16). CFAR/CfarNr är 8 siffror. Personnummer-lika PeOrgNr loggas inte.",
+      "Exakt operator ArLikaMed. Live JE-namn är OrgNr (10 siffror) och OrgNr (12 siffror) — inte PeOrgNr (SCB 400). 10-siffrigt org.nr på 12-siffriga fältet → prefix 16. CFAR/CfarNr är 8 siffror. Personnummer-lika värden loggas inte.",
   },
 ];
 

@@ -44,12 +44,12 @@ describe("metadata envelope", () => {
     expect(
       extractMetadataItems({
         Variabler: [
-          { Id_Variabel_JE: "Företagsnamn" },
-          { Id_Variabel_AE: "Benämning" },
-          { Id_Variabel: "PeOrgNr" },
+          { Id_Variabel_JE: "OrgNr (12 siffror)", TillaggsGrupp: "BasUtbud" },
+          { Id_Variabel_AE: "Benämning", TillaggsGrupp: "BasUtbud" },
+          { Id_Variabel: "CfarNr" },
         ],
       }).map((item) => item.name),
-    ).toEqual(["Företagsnamn", "Benämning", "PeOrgNr"]);
+    ).toEqual(["OrgNr (12 siffror)", "Benämning", "CfarNr"]);
   });
 
   it("prefers Varde as kodtabell name over Text", () => {
