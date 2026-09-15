@@ -222,6 +222,27 @@ export function catalogDocCount(artifact: CatalogArtifact): number {
   }, 0);
 }
 
+/** For logs / operators: which Anställda codes the catalog treats as 1–4 and 5–9. */
+export function catalogEmployeeBandSummary(artifact: CatalogArtifact): string {
+  const parts: string[] = [];
+  for (const objectType of OBJECT_TYPES) {
+    for (const table of artifact.layouts[objectType].tables) {
+      if (table.kind !== "size") {
+        continue;
+      }
+      const oneFour = table.rows.find((row) => /1\s*[-–]\s*4/u.test(row.label));
+      const fiveNine = table.rows.find((row) => /5\s*[-–]\s*9/u.test(row.label));
+      if (!oneFour && !fiveNine) {
+        continue;
+      }
+      parts.push(
+        `${objectType}/${table.category}: 1-4→${oneFour?.code ?? "?"} 5-9→${fiveNine?.code ?? "?"}`,
+      );
+    }
+  }
+  return parts.join("; ") || "no size bands";
+}
+
 export function writeCatalogToDisk(path: string, artifact: CatalogArtifact): void {
   mkdirSync(dirname(path), { recursive: true });
   const tmp = `${path}.${process.pid}.tmp`;

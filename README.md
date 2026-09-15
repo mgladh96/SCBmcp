@@ -404,7 +404,7 @@ CI/dev utan certifikat kan återskapa den incheckade fixturen:
 pnpm catalog:refresh:fixture
 ```
 
-`builtAt` och `sourceVersion` i artifacten är till för felsökning. `SCB_CATALOG_DISABLE=true` tvingar live-metadata.
+`builtAt`, `source` och `sourceVersion` i artifacten är till för felsökning. `source: "fixture"` är **inte** live SoT — Anställda-koder i fixturen måste följa live kodtabell (idag `5–9` → `3`, `1–4` → `2`). `pnpm catalog:refresh` sätter `source: "scb-live"` efter riktiga SCB-anrop (väntar vid `SCB_RATE_LIMITED`). Om bakgrundsvärmen misslyckas fortsätter servern på fixturen och loggar att koderna kan skilja sig från live. `SCB_CATALOG_DISABLE=true` tvingar live-metadata.
 
 ### Discovery-first (filterklara träffar)
 

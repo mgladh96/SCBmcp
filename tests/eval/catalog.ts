@@ -3,7 +3,7 @@ import {
   LIVE_TWO_DIGIT_BRANSCH_CATEGORY,
 } from "../fixtures/live-scb-metadata.js";
 import type { MockCatalogSpec } from "../helpers.js";
-import { liveConstructionCatalogSpec } from "../helpers.js";
+import { liveConstructionCatalogSpec, LIVE_EMPLOYEE_SIZE_BANDS } from "../helpers.js";
 import { buildCatalogArtifact } from "../../src/scb/offline-catalog.js";
 
 /** Substring-noise 2-digit codes that must not win for construction aliases. */
@@ -33,15 +33,8 @@ const AREGIONS: Array<{ code: string; label: string }> = [
   { code: "SE322", label: "Jämtlands län" },
 ];
 
-const SIZE_BANDS: Array<{ code: string; label: string }> = [
-  { code: "0", label: "0 anställda" },
-  { code: "1", label: "1-4 anställda" },
-  { code: "2", label: "5-9 anställda" },
-  { code: "4", label: "10-19 anställda" },
-  { code: "5", label: "20-49 anställda" },
-  { code: "6", label: "50-99 anställda" },
-  { code: "7", label: "100-199 anställda" },
-];
+/** Live SCB Anställda kodtabell — not a guessed 0,1,2 sequence. */
+const SIZE_BANDS: Array<{ code: string; label: string }> = LIVE_EMPLOYEE_SIZE_BANDS;
 
 /**
  * Live-shaped kodtabell for blind cases: construction noise + restaurant/IT/transport/retail.

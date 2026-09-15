@@ -140,11 +140,11 @@
               "label": "0 anställda"
             },
             {
-              "code": "1",
+              "code": "2",
               "label": "1-4 anställda"
             },
             {
-              "code": "2",
+              "code": "3",
               "label": "5-9 anställda"
             },
             {
@@ -1008,11 +1008,11 @@
               "label": "0 anställda"
             },
             {
-              "code": "1",
+              "code": "2",
               "label": "1-4 anställda"
             },
             {
-              "code": "2",
+              "code": "3",
               "label": "5-9 anställda"
             },
             {

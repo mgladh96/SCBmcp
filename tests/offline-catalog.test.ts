@@ -53,6 +53,9 @@ describe("offline catalog load", () => {
     expect(loaded?.layouts.company.tables.some((table) => table.kind === "industry")).toBe(true);
     expect(loaded?.layouts.company.tables.some((table) => table.kind === "geography")).toBe(true);
     expect(loaded?.layouts.company.tables.some((table) => table.kind === "size")).toBe(true);
+    const size = loaded?.layouts.company.tables.find((table) => table.kind === "size");
+    expect(size?.rows.find((row) => /5-9/.test(row.label))?.code).toBe("3");
+    expect(size?.rows.find((row) => /1-4/.test(row.label))?.code).toBe("2");
   });
 
   it("bundled snapshot is loadable when present", () => {
@@ -62,6 +65,10 @@ describe("offline catalog load", () => {
     }
     expect(bundled.layouts.company.categoryNames.length).toBeGreaterThan(0);
     expect(catalogDocCount(bundled)).toBeGreaterThan(0);
+    expect(bundled.source).toBe("fixture");
+    const size = bundled.layouts.company.tables.find((table) => table.kind === "size");
+    expect(size?.rows.find((row) => /5-9/.test(row.label))?.code).toBe("3");
+    expect(size?.rows.find((row) => /1-4/.test(row.label))?.code).toBe("2");
   });
 });
 
@@ -111,7 +118,7 @@ describe("compile against local catalog", () => {
     const emp = compiled.coverage.find((item) => item.constraint === "employees");
     expect(emp?.relation).toBe("exact");
     expect(emp?.exact).toBe(true);
-    expect(compiled.resolved.employees?.bands.map((band) => band.code)).toEqual(["2"]);
+    expect(compiled.resolved.employees?.bands.map((band) => band.code)).toEqual(["3"]);
     spy.mockRestore();
   });
 

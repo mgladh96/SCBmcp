@@ -10,6 +10,7 @@ import {
   buildCatalogFromClient,
   bundledCatalogPath,
   catalogDocCount,
+  catalogEmployeeBandSummary,
   resolveCatalogPath,
   writeCatalogToDisk,
 } from "../src/scb/offline-catalog.js";
@@ -22,7 +23,7 @@ async function main(): Promise<void> {
     const artifact = fixtureCatalogArtifact();
     writeCatalogToDisk(out, artifact);
     process.stdout.write(
-      `Wrote fixture catalog ${out} (${catalogDocCount(artifact)} rows, builtAt=${artifact.builtAt})\n`,
+      `Wrote fixture catalog ${out} (${catalogDocCount(artifact)} rows, builtAt=${artifact.builtAt}, source=${artifact.source}, ${catalogEmployeeBandSummary(artifact)})\n`,
     );
     return;
   }
@@ -48,7 +49,7 @@ async function main(): Promise<void> {
   });
   writeCatalogToDisk(out, artifact);
   process.stdout.write(
-    `Wrote live catalog ${out} (${catalogDocCount(artifact)} rows, builtAt=${artifact.builtAt})\n`,
+    `Wrote live catalog ${out} (${catalogDocCount(artifact)} rows, builtAt=${artifact.builtAt}, source=${artifact.source}, ${catalogEmployeeBandSummary(artifact)})\n`,
   );
 }
 

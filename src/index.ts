@@ -25,7 +25,14 @@ async function main(): Promise<void> {
     log.info("SCB offline catalog ready", {
       endpoint: "catalog",
       count: catalog.docCount,
+      source: catalog.source,
     });
+    if (catalog.source === "fixture") {
+      log.info(
+        "SCB catalog source is fixture, not live SoT; warm will replace Anställda/SNI/geo when SCB is reachable",
+        { endpoint: "catalog", source: catalog.source },
+      );
+    }
   }
   const handlers = createToolHandlers(client, log);
   const httpServer = createSseHttpServer({

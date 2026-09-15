@@ -5,6 +5,8 @@ import { fold } from "../src/domain/catalog.js";
 import { SlidingWindowRateLimiter } from "../src/scb/rate-limit.js";
 import { catalogAndSearchFetch, catalogFetch, createTestClient, liveConstructionCatalogSpec } from "./helpers.js";
 import { LIVE_AE_SEARCH_ROW } from "./fixtures/live-scb-metadata.js";
+import { fixtureCatalogArtifact } from "./eval/catalog.js";
+import { buildCatalogArtifact } from "../src/scb/offline-catalog.js";
 
 const silent = createLogger("error");
 
@@ -157,6 +159,7 @@ describe("metadata warm", () => {
     const result = await client.warmMetadataCache();
     expect(result.skipped).toBeUndefined();
     expect(result.errors).toEqual([]);
+    expect(result.catalogRefreshed).toBe(true);
     expect(result.warmed).toEqual(
       expect.arrayContaining([
         "listCategories:company",
@@ -187,5 +190,79 @@ describe("metadata warm", () => {
     const result = await client.warmMetadataCache();
     expect(result.errors.length).toBeGreaterThan(0);
     expect(result.warmed).toEqual([]);
+    expect(result.catalogRefreshed).toBeUndefined();
+  });
+
+  it("replaces fixture Anställda codes from live SCB instead of reseeding the fixture cache", async () => {
+    const stale = buildCatalogArtifact({
+      source: "fixture",
+      sourceVersion: "stale-employee-codes",
+      layouts: {
+        company: {
+          categoryNames: ["Företagsstatus", "Säteskommun", "Anställda", "Bransch"],
+          variableNames: ["Namn"],
+          tables: [
+            { category: "Företagsstatus", rows: [{ code: "1", label: "verksam" }] },
+            { category: "Säteskommun", rows: [{ code: "2380", label: "Östersund" }] },
+            {
+              category: "Anställda",
+              rows: [
+                { code: "1", label: "1-4 anställda" },
+                { code: "2", label: "5-9 anställda" },
+              ],
+            },
+            { category: "Bransch", rows: [{ code: "81", label: "Fastighetsserviceverksamhet" }] },
+          ],
+        },
+        workplace: {
+          categoryNames: ["Arbetsställestatus", "Kommun", "Anställda", "Bransch"],
+          variableNames: ["Benämning"],
+          tables: [
+            { category: "Arbetsställestatus", rows: [{ code: "1", label: "verksam" }] },
+            { category: "Kommun", rows: [{ code: "2380", label: "Östersund" }] },
+            {
+              category: "Anställda",
+              rows: [
+                { code: "1", label: "1-4 anställda" },
+                { code: "2", label: "5-9 anställda" },
+              ],
+            },
+            { category: "Bransch", rows: [{ code: "81", label: "Fastighetsserviceverksamhet" }] },
+          ],
+        },
+      },
+    });
+    expect(stale.layouts.company.tables.find((table) => table.kind === "size")?.rows.find((row) => /5-9/.test(row.label))?.code).toBe(
+      "2",
+    );
+    const client = createTestClient(catalogFetch({ shape: "live" }), {
+      offlineCatalog: stale,
+      rateLimiter: new SlidingWindowRateLimiter(1000),
+    });
+    const result = await client.warmMetadataCache();
+    expect(result.errors).toEqual([]);
+    expect(result.catalogRefreshed).toBe(true);
+    expect(client.catalogInfo()?.source).toBe("scb-live");
+    const sizeRows =
+      client.offlineCodeRows("company", "Storleksklass Anställda") ??
+      client.offlineCodeRows("company", "Anställda") ??
+      [];
+    expect(sizeRows.find((row) => /5-9/.test(row.label))?.code).toBe("3");
+    expect(sizeRows.find((row) => /1-4/.test(row.label))?.code).toBe("2");
+  });
+
+  it("keeps fixture catalog when live refresh fails", async () => {
+    const fixture = fixtureCatalogArtifact();
+    const client = createTestClient(
+      async () => {
+        throw new Error("SCB down");
+      },
+      { offlineCatalog: fixture, rateLimiter: new SlidingWindowRateLimiter(1000), sleep: async () => {} },
+    );
+    const result = await client.warmMetadataCache();
+    expect(result.catalogRefreshed).toBeUndefined();
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(client.catalogInfo()?.source).toBe("fixture");
+    expect(client.offlineCodeRows("company", "Anställda")?.find((row) => /5-9/.test(row.label))?.code).toBe("3");
   });
 });

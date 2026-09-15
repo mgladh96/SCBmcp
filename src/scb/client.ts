@@ -9,6 +9,7 @@ import {
   buildCatalogFromClient,
   catalogDisabled,
   catalogDocCount,
+  catalogEmployeeBandSummary,
   categoryListPayload,
   findCatalogTable,
   kodtabellPayload,
@@ -18,6 +19,7 @@ import {
   writeCatalogToDisk,
   type CatalogArtifact,
   type CatalogLayout,
+  type CatalogMetadataSource,
 } from "./offline-catalog.js";
 import { countPath, endpointsFor, searchPath } from "./endpoints.js";
 import { identityInvalidErrorDetails, normalizeIdentityInFilters } from "./identity.js";
@@ -75,7 +77,7 @@ export type ScbClientOptions = {
 
 export type MetadataCallOptions = {
   bypassCache?: boolean;
-  /** Skip the bundled catalog and hit live/cache (used by catalog refresh). */
+  /** Skip the bundled catalog. Pair with bypassCache to hit live SCB, not fixture-seeded cache. */
   bypassCatalog?: boolean;
 };
 
@@ -361,10 +363,10 @@ export class ScbClient {
   }
 
   /**
-   * Prefetch JE/AE category lists, variables, and discovery indexes after startup.
-   * On success, rebuilds the in-memory catalog (and optionally rewrites the snapshot).
-   * Failures are logged and swallowed so a cold SCB does not crash the MCP process.
-   * The bundled catalog keeps serving if live refresh fails.
+   * Rebuild the offline catalog from live SCB (wait/retry on rate limits), then
+   * prefetch JE/AE lists. Failures are logged and swallowed so a cold SCB does
+   * not crash the MCP process. The bundled fixture keeps serving if live refresh
+   * fails — logs then warn that fixture codes may not match live.
    */
   async warmMetadataCache(
     options: { persist?: boolean } = {},
@@ -376,71 +378,77 @@ export class ScbClient {
     const warmed: string[] = [];
     const errors: string[] = [];
     const objectTypes: ObjectType[] = ["company", "workplace"];
-    for (const objectType of objectTypes) {
-      const listed = await this.warmStep(`listCategories:${objectType}`, () =>
-        this.listCategories(objectType, false, { bypassCatalog: true }),
-      );
-      if (listed.ok) {
-        warmed.push(`listCategories:${objectType}`);
-      } else if (listed.error) {
-        errors.push(listed.error);
-      }
-      const vars = await this.warmStep(`listVariables:${objectType}`, () =>
-        this.listVariables(objectType, false, { bypassCatalog: true }),
-      );
-      if (vars.ok) {
-        warmed.push(`listVariables:${objectType}`);
-      } else if (vars.error) {
-        errors.push(vars.error);
-      }
-      for (const kind of LOOKUP_KINDS) {
-        const key = `discovery:${objectType}:${kind}`;
-        const index = await this.warmStep(key, () =>
-          this.getDiscoveryIndex(objectType, { bypassCatalog: true }, kind),
-        );
-        if (index.ok) {
-          warmed.push(key);
-        } else if (index.error) {
-          errors.push(index.error);
-        }
-      }
-    }
+    const previous = this.catalog;
     let catalogRefreshed = false;
-    if (errors.length === 0 && warmed.length > 0) {
-      try {
-        const artifact = await buildCatalogFromClient(
-          {
-            listCategories: (objectType) => this.listCategories(objectType, false, { bypassCatalog: true }),
-            listVariables: (objectType) => this.listVariables(objectType, false, { bypassCatalog: true }),
-            getCategoryValues: (objectType, category) =>
-              this.getCategoryValues(objectType, category, { bypassCatalog: true }),
-          },
-          {
-            source: "scb-live",
-            sleep: this.sleep,
-            onRateLimitWait: (waitMs) =>
-              this.log.info("SCB catalog rebuild waiting for rate limit", {
-                endpoint: "catalog",
-                retryAfterMs: waitMs,
-              }),
-          },
-        );
-        this.installCatalog(artifact);
-        catalogRefreshed = true;
-        if (options.persist === true) {
-          writeCatalogToDisk(this.catalogPath, artifact);
-        }
-        this.log.info("SCB offline catalog refreshed", {
+
+    // Fixture install used to seed metadataCache; never treat that as live SCB.
+    this.metadataCache.clear();
+    try {
+      const artifact = await buildCatalogFromClient(this.liveCatalogSource(), {
+        source: "scb-live",
+        sleep: this.sleep,
+        onRateLimitWait: (waitMs) =>
+          this.log.info("SCB catalog rebuild waiting for rate limit", {
+            endpoint: "catalog",
+            retryAfterMs: waitMs,
+          }),
+      });
+      this.installCatalog(artifact);
+      catalogRefreshed = true;
+      warmed.push("catalog");
+      if (options.persist === true) {
+        writeCatalogToDisk(this.catalogPath, artifact);
+      }
+      this.log.info(
+        `SCB offline catalog refreshed from live SCB (${catalogEmployeeBandSummary(artifact)})`,
+        {
           endpoint: "catalog",
           count: catalogDocCount(artifact),
-        });
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        errors.push(`catalog:${message}`);
-        this.log.error("SCB offline catalog refresh failed; keeping bundled snapshot", {
+          source: artifact.source,
+        },
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      errors.push(`catalog:${message}`);
+      this.log.error(
+        "SCB live catalog refresh failed; bundled fixture Anställda/SNI/geo codes may not match live SCB",
+        {
           endpoint: "catalog",
           errorCode: "SCB_UNAVAILABLE",
-        });
+          source: previous?.source ?? "none",
+          count: previous ? catalogDocCount(previous) : 0,
+        },
+      );
+    }
+
+    const metaOpts: MetadataCallOptions = catalogRefreshed ? {} : { bypassCatalog: true };
+    if (catalogRefreshed || !this.catalog) {
+      for (const objectType of objectTypes) {
+        const listed = await this.warmStep(`listCategories:${objectType}`, () =>
+          this.listCategories(objectType, false, metaOpts),
+        );
+        if (listed.ok) {
+          warmed.push(`listCategories:${objectType}`);
+        } else if (listed.error) {
+          errors.push(listed.error);
+        }
+        const vars = await this.warmStep(`listVariables:${objectType}`, () =>
+          this.listVariables(objectType, false, metaOpts),
+        );
+        if (vars.ok) {
+          warmed.push(`listVariables:${objectType}`);
+        } else if (vars.error) {
+          errors.push(vars.error);
+        }
+        for (const kind of LOOKUP_KINDS) {
+          const key = `discovery:${objectType}:${kind}`;
+          const index = await this.warmStep(key, () => this.getDiscoveryIndex(objectType, metaOpts, kind));
+          if (index.ok) {
+            warmed.push(key);
+          } else if (index.error) {
+            errors.push(index.error);
+          }
+        }
       }
     }
     if (errors.length > 0) {
@@ -448,11 +456,21 @@ export class ScbClient {
         endpoint: "warm",
         count: errors.length,
         errorCode: "SCB_UNAVAILABLE",
+        source: this.catalog?.source ?? "none",
       });
     } else {
       this.log.info("SCB metadata warm complete", { endpoint: "warm", count: warmed.length });
     }
     return { warmed, errors, ...(catalogRefreshed ? { catalogRefreshed } : {}) };
+  }
+
+  private liveCatalogSource(): CatalogMetadataSource {
+    const opts: MetadataCallOptions = { bypassCatalog: true, bypassCache: true };
+    return {
+      listCategories: (objectType) => this.listCategories(objectType, false, opts),
+      listVariables: (objectType) => this.listVariables(objectType, false, opts),
+      getCategoryValues: (objectType, category) => this.getCategoryValues(objectType, category, opts),
+    };
   }
 
   private async warmStep<T>(label: string, run: () => Promise<T>): Promise<{ ok: boolean; error?: string }> {
@@ -548,7 +566,14 @@ export class ScbClient {
       this.log.info("SCB offline catalog loaded", {
         endpoint: "catalog",
         count: catalogDocCount(loaded),
+        source: loaded.source,
       });
+      if (loaded.source === "fixture") {
+        this.log.info(
+          "SCB catalog source is fixture, not live SoT; warm/catalog:refresh replaces Anställda/SNI/geo when SCB is reachable",
+          { endpoint: "catalog", source: loaded.source },
+        );
+      }
     }
   }
 
@@ -560,12 +585,6 @@ export class ScbClient {
     ]);
     for (const objectType of ["company", "workplace"] as const) {
       const layout = artifact.layouts[objectType];
-      const scbLayout = layoutFor(objectType);
-      this.metadataCache.set(`listCategories:${scbLayout}:0`, categoryListPayload(objectType, layout.categoryNames));
-      this.metadataCache.set(`listVariables:${scbLayout}:0`, variableListPayload(objectType, layout.variableNames));
-      for (const table of layout.tables) {
-        this.metadataCache.set(`kodtabell:${scbLayout}:${table.category}`, kodtabellPayload(table.rows));
-      }
       this.discoveryCache.set(
         discoveryCacheKey(objectType),
         buildDiscoveryIndex(
