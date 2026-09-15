@@ -1,8 +1,6 @@
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fold } from "../src/domain/catalog.js";
-import { fieldMatchesToken } from "../src/scb/projection.js";
 import { ScbClient, type FetchLike } from "../src/scb/client.js";
 import type { ScbAuthConfig } from "../src/scb/auth.js";
 import {
@@ -232,85 +230,19 @@ export function catalogAndSearchFetch(
   options: {
     count: number;
     results: unknown[];
-    /**
-     * Live JE omits Namn/OrgNr unless they are in POST variabler.
-     * Default true so tests prove fetch requested those variables.
-     */
-    gateOutputVariables?: boolean;
   },
 ): FetchLike {
   const catalog = catalogFetch(spec);
-  const gate = options.gateOutputVariables !== false;
   return async (url, init) => {
     const path = new URL(url).pathname;
     if (path.includes("rakna")) {
       return jsonResponse(200, options.count);
     }
     if (path.includes("hamta")) {
-      const requested = requestedVariableNames(init.body);
-      const rows = gate
-        ? options.results.map((row) => gateSearchRow(row, requested))
-        : options.results;
-      return jsonResponse(200, rows);
+      return jsonResponse(200, options.results);
     }
     return catalog(url, init);
   };
-}
-
-function requestedVariableNames(body: string | undefined): string[] {
-  if (!body) {
-    return [];
-  }
-  try {
-    const parsed = JSON.parse(body) as { variabler?: Array<{ Variabel?: string }> };
-    return (parsed.variabler ?? []).map((item) => item.Variabel ?? "").filter((name) => name.length > 0);
-  } catch {
-    return [];
-  }
-}
-
-function gateSearchRow(row: unknown, requested: string[]): unknown {
-  if (!row || typeof row !== "object" || Array.isArray(row)) {
-    return row;
-  }
-  const input = row as Record<string, unknown>;
-  const out: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(input)) {
-    if (keepSearchField(key, requested)) {
-      out[key] = value;
-    }
-  }
-  return out;
-}
-
-function keepSearchField(key: string, requested: string[]): boolean {
-  const folded = fold(key);
-  if (folded === "reklam" || folded.startsWith("reklam") || folded.endsWith("reklam")) {
-    return true;
-  }
-  if (isNameOutputField(key)) {
-    return requested.some((name) => isNameOutputField(name) || fieldMatchesToken(key, name));
-  }
-  if (isOrgNrOutputField(key)) {
-    return requested.some((name) => isOrgNrOutputField(name) || fieldMatchesToken(key, name));
-  }
-  return true;
-}
-
-function isNameOutputField(name: string): boolean {
-  const n = fold(name);
-  return (
-    n.includes("foretagsnamn") ||
-    n.includes("firma") ||
-    n === "namn" ||
-    n.startsWith("namn") ||
-    n.includes("benamning")
-  );
-}
-
-function isOrgNrOutputField(name: string): boolean {
-  const n = fold(name);
-  return n.includes("orgnr") || n.includes("peorgnr");
 }
 
 function categoryListPayload(

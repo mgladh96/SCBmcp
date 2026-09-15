@@ -58,8 +58,8 @@ export type ResolvedStatus = {
 };
 
 /**
- * Semantic field id → actual SCB variable/category names for this objectType.
- * Search rows may still use SCB keys; count_then_fetch aliases them via this map.
+ * Semantic field id → SCB names for this objectType (live hamta keys first,
+ * then catalog variables/categories). count_then_fetch aliases row keys via this map.
  */
 export type ResolvedFields = Record<string, string[]>;
 

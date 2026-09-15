@@ -26,7 +26,7 @@ Anti-mönster:
 - Operatorer är SCB-enum: Innehaller, ArLikaMed, BorjarPa, Mellan, FranOchMed, TillOchMed, Finns, FinnsInte — inte Contains/Equals.
 - AnstSME ≠ Storleksklass Anställda. Numeriskt employees-intervall mappas till klasser med ärlig coverage (aldrig tyst exact vid bandapproximation).
 - Behåll fältet Reklam; kringgå inte reklamspärr.
-- Org.nr: live JE-namn är OrgNr (10 siffror) och OrgNr (12 siffror), inte PeOrgNr. Semantic field organizationNumber löses per objectType.
+- Org.nr: katalogvariabler kan heta OrgNr (10/12 siffror); live hamta-rader har OrgNr/PeOrgNr (JE). Semantic organizationNumber mappar de nycklarna — skicka inte Finns för att “välja” kolumner.
 - Ingen historik i detta API.
 - Kvot: 10 anrop / 10 sekunder. Vid SCB_RATE_LIMITED: vänta retryAfterMs och upprepa samma anrop (retry_same). Servern väntar inte tyst.
 

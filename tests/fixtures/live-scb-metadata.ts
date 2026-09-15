@@ -91,3 +91,32 @@ export const LIVE_OMSATTNING_KODTABELL = {
     { Varde: "04", Text: "10 000 - 19 999 tkr" },
   ],
 };
+
+/**
+ * Default JE hamta columns when POST has category filters only (no variabler).
+ * Confirmed against privateapi.scb.se 2026-09-15 — not Namn / OrgNr (10 siffror).
+ */
+export const LIVE_JE_SEARCH_ROW = {
+  Företagsnamn: "Jämtlands Bygg AB",
+  OrgNr: "5560747569",
+  PeOrgNr: "165560747569",
+  Säteskommun: "Östersund",
+  Säteslän: "Jämtlands län",
+  Storleksklass: "10-19 anställda",
+  "Stkl, kod": "4",
+  Reklam: "11",
+  Telefon: "should-not-leak",
+};
+
+/** Default AE hamta columns with category filters only (no Finns projection). */
+export const LIVE_AE_SEARCH_ROW = {
+  Benämning: "Jämtlands Bygg Östersund",
+  OrgNr: "5560747569",
+  PeOrgNr: "165560747569",
+  Kommun: "Östersund",
+  Län: "Jämtlands län",
+  Storleksklass: "10-19 anställda",
+  "Stkl, kod": "4",
+  Reklam: "11",
+  Telefon: "should-not-leak",
+};

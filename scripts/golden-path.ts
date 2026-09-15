@@ -9,7 +9,7 @@
 import { compileStructuredQuery, countThenFetch, structuredQuerySchema } from "../src/scb/compile/index.js";
 import { fold } from "../src/domain/catalog.js";
 import { catalogAndSearchFetch, createTestClient, liveConstructionCatalogSpec } from "../tests/helpers.js";
-import { LIVE_TWO_DIGIT_BRANSCH_CATEGORY } from "../tests/fixtures/live-scb-metadata.js";
+import { LIVE_JE_SEARCH_ROW, LIVE_TWO_DIGIT_BRANSCH_CATEGORY } from "../tests/fixtures/live-scb-metadata.js";
 
 const GOLDEN_QUERY = {
   objectType: "company" as const,
@@ -20,15 +20,7 @@ const GOLDEN_QUERY = {
   fields: ["name", "organizationNumber", "municipality", "employeeCount"],
 };
 
-const GOLDEN_ROW = {
-  Namn: "Jämtlands Bygg AB",
-  "OrgNr (10 siffror)": "5560747569",
-  "Säteskommun, text": "Östersund",
-  "Säteskommun, kod": "2380",
-  Anställda: "10-19 anställda",
-  Reklam: "11",
-  Telefon: "secret",
-};
+const GOLDEN_ROW = LIVE_JE_SEARCH_ROW;
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) {
@@ -38,9 +30,14 @@ function assert(condition: unknown, message: string): asserts condition {
 
 async function main(): Promise<void> {
   const query = structuredQuerySchema.parse(GOLDEN_QUERY);
-  const client = createTestClient(
-    catalogAndSearchFetch(liveConstructionCatalogSpec(), { count: 14, results: [GOLDEN_ROW] }),
-  );
+  const hamtaBodies: unknown[] = [];
+  const inner = catalogAndSearchFetch(liveConstructionCatalogSpec(), { count: 14, results: [GOLDEN_ROW] });
+  const client = createTestClient(async (url, init) => {
+    if (new URL(url).pathname.includes("hamta") && init.body) {
+      hamtaBodies.push(JSON.parse(init.body));
+    }
+    return inner(url, init);
+  });
 
   const compiled = await compileStructuredQuery(query, client);
   const geo = compiled.filters.categories.find((item) => fold(item.category).includes("sateslan"));
@@ -71,6 +68,18 @@ async function main(): Promise<void> {
 
   const fetched = await countThenFetch(client, query);
   assert(fetched.coverage.some((item) => item.constraint === "employees"), "coverage dropped on fetch");
+  assert(
+    !fetched.filters.variables.some((item) => item.operator === "Finns" || item.operator === "ArLikaMed"),
+    "count_then_fetch must not inject Finns/ArLikaMed for projection",
+  );
+  assert(hamtaBodies.length > 0, "expected a hamta POST");
+  for (const body of hamtaBodies) {
+    const vars = (body as { variabler?: Array<{ Operator?: string }> }).variabler ?? [];
+    assert(
+      vars.every((item) => item.Operator !== "Finns" && item.Operator !== "ArLikaMed"),
+      `hamta POSTed illegal projection operator: ${JSON.stringify(body)}`,
+    );
+  }
   assert(fetched.results[0]?.name === "Jämtlands Bygg AB", "expected semantic key name");
   assert(fetched.results[0]?.organizationNumber === "5560747569", "expected semantic organizationNumber");
   assert(fetched.results[0]?.municipality === "Östersund", "expected semantic municipality");
@@ -101,7 +110,7 @@ async function main(): Promise<void> {
         employeeCoverage: emp,
         projectedKeys: fetched.projectedFields,
         aliasNote:
-          "Results use semantic keys (name, organizationNumber, municipality, employeeCount). resolved.fields maps them to live SCB names (Namn/Firma, OrgNr (10 siffror), Säteskommun). Fetch POSTs those variables (Finns) so JE returns them.",
+          "Results use semantic keys (name, organizationNumber, municipality, employeeCount). resolved.fields prefers live hamta keys (Företagsnamn, OrgNr/PeOrgNr, Säteskommun, Storleksklass). Fetch does not POST Finns/ArLikaMed to select Namn.",
       },
       null,
       2,
