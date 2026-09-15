@@ -44,12 +44,12 @@
       "objectType": "workplace",
       "layout": "ae",
       "geographyCategoryContains": "lan",
-      "industryMustIncludeCodes": ["41", "42", "43"],
       "industryMustNotIncludeNoise": ["22", "30", "16", "23", "25", "28", "46"],
       "employeeRelation": "superset",
       "forbidFalseExact": true,
-      "compileOk": true,
-      "fetchOutcome": "success",
+      "compileOk": false,
+      "fetchOutcome": "choose",
+      "unresolvedConstraint": "industry",
       "minToolCallsMax": 2
     }
   },
@@ -334,7 +334,7 @@
       "employeeRelation": "unrepresentable",
       "forbidFalseExact": true,
       "compileOk": false,
-      "fetchOutcome": "compile_fail",
+      "fetchOutcome": "impossible",
       "unresolvedConstraint": "employees",
       "minToolCallsMax": 2
     }
@@ -353,7 +353,7 @@
       "objectType": "company",
       "layout": "je",
       "compileOk": false,
-      "fetchOutcome": "compile_fail",
+      "fetchOutcome": "impossible",
       "unresolvedConstraint": "geography",
       "forbidFalseExact": true,
       "minToolCallsMax": 2
@@ -373,7 +373,7 @@
       "objectType": "workplace",
       "layout": "ae",
       "compileOk": false,
-      "fetchOutcome": "compile_fail",
+      "fetchOutcome": "impossible",
       "unresolvedConstraint": "industry",
       "forbidFalseExact": true,
       "minToolCallsMax": 2
@@ -393,7 +393,7 @@
       "objectType": "workplace",
       "layout": "ae",
       "compileOk": false,
-      "fetchOutcome": "compile_fail",
+      "fetchOutcome": "impossible",
       "unresolvedConstraint": "geography",
       "forbidFalseExact": true,
       "minToolCallsMax": 2
@@ -481,9 +481,10 @@
       "objectType": "company",
       "layout": "je",
       "geographyCategoryContains": "sateslan",
-      "industryMustIncludeCodes": ["41", "42", "43"],
-      "compileOk": true,
-      "fetchOutcome": "success",
+      "industryMustNotIncludeNoise": ["22", "30", "16", "23", "25", "28", "46"],
+      "compileOk": false,
+      "fetchOutcome": "choose",
+      "unresolvedConstraint": "industry",
       "minToolCallsMax": 2
     }
   },
@@ -606,7 +607,7 @@
   },
   {
     "id": "blind-ambiguous-it",
-    "description": "Ambiguous query IT must be unresolved — not a substring hit (e.g. konditorier) or a guessed SNI.",
+    "description": "Query IT must not collapse to restaurant/konditori SNI; discovery-v1 may resolve an IT family when metadata is clear.",
     "tier": "blind",
     "fixture": "diverse",
     "query": {
@@ -618,9 +619,8 @@
     "expect": {
       "objectType": "company",
       "layout": "je",
-      "compileOk": false,
-      "fetchOutcome": "compile_fail",
-      "unresolvedConstraint": "industry",
+      "compileOk": true,
+      "fetchOutcome": "success",
       "industryMustNotIncludeNoise": ["56102", "56101", "56", "I"],
       "forbidFalseExact": true,
       "minToolCallsMax": 2

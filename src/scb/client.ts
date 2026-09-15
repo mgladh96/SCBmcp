@@ -1,7 +1,7 @@
 import { localRateLimited, mapHttpError, queryTooBroad, ScbError, unknownOperatorError, withCatalogHints } from "../domain/errors.js";
 import { createLogger, type LogLevel } from "../log.js";
 import { apiIdHeaders, createScbDispatcher, type ScbAuthConfig, validateCertConfig } from "./auth.js";
-import { classifyCategoryKind, type CategoryKind } from "../domain/catalog.js";
+import { classifyCategoryKind, LOOKUP_KINDS, type CategoryKind } from "../domain/catalog.js";
 import { TtlCache } from "./cache.js";
 import { lookupCategoryGroups, searchCodes, type CodeLookupResult } from "./code-lookup.js";
 import { buildDiscoveryIndex, type DiscoveryIndex } from "./discovery.js";
@@ -48,6 +48,8 @@ export type ScbClientOptions = {
   bypassMetadataCache?: boolean;
   metadataCacheTtlMs?: number;
   countCacheTtlMs?: number;
+  /** Used only by metadata warm retries. Tests can inject a no-op. */
+  sleep?: (ms: number) => Promise<void>;
 };
 
 export type MetadataCallOptions = {
@@ -91,6 +93,7 @@ export class ScbClient {
   private readonly metadataCache: TtlCache<unknown>;
   private readonly discoveryCache: TtlCache<DiscoveryIndex>;
   private readonly countCache: TtlCache<number>;
+  private readonly sleep: (ms: number) => Promise<void>;
 
   constructor(options: ScbClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
@@ -104,6 +107,7 @@ export class ScbClient {
     this.metadataCache = new TtlCache(metadataTtl);
     this.discoveryCache = new TtlCache(metadataTtl);
     this.countCache = new TtlCache(options.countCacheTtlMs ?? COUNT_CACHE_TTL_MS);
+    this.sleep = options.sleep ?? defaultSleep;
     if (options.skipCertLoad) {
       validateCertConfig(this.auth);
       this.dispatcher = undefined;
@@ -265,6 +269,80 @@ export class ScbClient {
 
   cachedVariableNames(objectType: ObjectType): string[] | undefined {
     return this.cachedMetadataNames(`listVariables:${layoutFor(objectType)}:0`);
+  }
+
+  /**
+   * Prefetch JE/AE category lists, variables, and discovery indexes after startup.
+   * Failures are logged and swallowed so a cold SCB does not crash the MCP process.
+   * Bypass flags skip warming (same as interactive metadata tools).
+   */
+  async warmMetadataCache(): Promise<{ skipped?: boolean; warmed: string[]; errors: string[] }> {
+    if (this.bypassMetadataCache) {
+      this.log.info("SCB metadata warm skipped", { endpoint: "warm", cacheHit: true });
+      return { skipped: true, warmed: [], errors: [] };
+    }
+    const warmed: string[] = [];
+    const errors: string[] = [];
+    const objectTypes: ObjectType[] = ["company", "workplace"];
+    for (const objectType of objectTypes) {
+      const listed = await this.warmStep(`listCategories:${objectType}`, () =>
+        this.listCategories(objectType, false),
+      );
+      if (listed.ok) {
+        warmed.push(`listCategories:${objectType}`);
+      } else if (listed.error) {
+        errors.push(listed.error);
+      }
+      const vars = await this.warmStep(`listVariables:${objectType}`, () => this.listVariables(objectType, false));
+      if (vars.ok) {
+        warmed.push(`listVariables:${objectType}`);
+      } else if (vars.error) {
+        errors.push(vars.error);
+      }
+      for (const kind of LOOKUP_KINDS) {
+        const key = `discovery:${objectType}:${kind}`;
+        const index = await this.warmStep(key, () => this.getDiscoveryIndex(objectType, {}, kind));
+        if (index.ok) {
+          warmed.push(key);
+        } else if (index.error) {
+          errors.push(index.error);
+        }
+      }
+    }
+    if (errors.length > 0) {
+      this.log.error("SCB metadata warm finished with errors", {
+        endpoint: "warm",
+        count: errors.length,
+        errorCode: "SCB_UNAVAILABLE",
+      });
+    } else {
+      this.log.info("SCB metadata warm complete", { endpoint: "warm", count: warmed.length });
+    }
+    return { warmed, errors };
+  }
+
+  private async warmStep<T>(label: string, run: () => Promise<T>): Promise<{ ok: boolean; error?: string }> {
+    try {
+      await run();
+      return { ok: true };
+    } catch (error) {
+      if (error instanceof ScbError && error.code === "SCB_RATE_LIMITED") {
+        const waitMs = typeof error.details.retryAfterMs === "number" ? error.details.retryAfterMs : RATE_LIMIT_WINDOW_MS;
+        this.log.info("SCB metadata warm waiting for rate limit", { endpoint: label, retryAfterMs: waitMs });
+        try {
+          await this.sleep(waitMs);
+          await run();
+          return { ok: true };
+        } catch (retryError) {
+          const message = retryError instanceof Error ? retryError.message : String(retryError);
+          this.log.error("SCB metadata warm failed after retry", { endpoint: label, errorCode: "SCB_UNAVAILABLE" });
+          return { ok: false, error: `${label}: ${message}` };
+        }
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      this.log.error("SCB metadata warm failed", { endpoint: label, errorCode: "SCB_UNAVAILABLE" });
+      return { ok: false, error: `${label}: ${message}` };
+    }
   }
 
   private async getDiscoveryIndex(
@@ -611,5 +689,11 @@ function toScbError(error: unknown): ScbError {
   }
   return new ScbError("SCB_UNAVAILABLE", "SCB request failed.", true, {
     cause: error instanceof Error ? error.message : "unknown",
+  });
+}
+
+function defaultSleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
   });
 }

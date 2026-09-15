@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ScbClient, type FetchLike } from "../src/scb/client.js";
 import type { ScbAuthConfig } from "../src/scb/auth.js";
+import type { SlidingWindowRateLimiter } from "../src/scb/rate-limit.js";
 import {
   LIVE_NOISY_TWO_DIGIT_BRANSCH,
   LIVE_TWO_DIGIT_BRANSCH_CATEGORY,
@@ -35,7 +36,14 @@ export function textResponse(status: number, body: string): Response {
   return new Response(body, { status });
 }
 
-export function createTestClient(fetchImpl: FetchLike, extras: { bypassMetadataCache?: boolean } = {}): ScbClient {
+export function createTestClient(
+  fetchImpl: FetchLike,
+  extras: {
+    bypassMetadataCache?: boolean;
+    rateLimiter?: SlidingWindowRateLimiter;
+    sleep?: (ms: number) => Promise<void>;
+  } = {},
+): ScbClient {
   return new ScbClient({
     baseUrl: "https://privateapi.scb.se/nv0101/v1/sokpavar",
     auth: testAuth(),
@@ -43,6 +51,8 @@ export function createTestClient(fetchImpl: FetchLike, extras: { bypassMetadataC
     skipCertLoad: true,
     logLevel: "error",
     bypassMetadataCache: extras.bypassMetadataCache ?? false,
+    ...(extras.rateLimiter ? { rateLimiter: extras.rateLimiter } : {}),
+    ...(extras.sleep ? { sleep: extras.sleep } : {}),
   });
 }
 
@@ -142,8 +152,16 @@ export function catalogFetch(spec: MockCatalogSpec): FetchLike {
       { code: "01", label: "Stockholms län" },
       { code: "23", label: "Jämtlands län" },
     ],
-    Säteskommun: [{ code: "2180", label: "Gävle" }, { code: "2380", label: "Östersund" }],
-    Kommun: [{ code: "2180", label: "Gävle" }, { code: "2380", label: "Östersund" }],
+    Säteskommun: [
+      { code: "2180", label: "Gävle" },
+      { code: "2380", label: "Östersund" },
+      { code: "2281", label: "Sundsvall" },
+    ],
+    Kommun: [
+      { code: "2180", label: "Gävle" },
+      { code: "2380", label: "Östersund" },
+      { code: "2281", label: "Sundsvall" },
+    ],
     SätesARegion: [{ code: "SE322", label: "Jämtlands län" }],
     ARegion: [{ code: "SE322", label: "Jämtlands län" }],
     "Storleksklass Anställda": [

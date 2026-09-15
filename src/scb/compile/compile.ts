@@ -14,6 +14,7 @@ import {
 import { resolveSemanticFields } from "./fields.js";
 import { isRevenueCategory, pickGeographyCategory, pickSizeCategory, pickStatusCategory } from "./geography.js";
 import { applyIndustry } from "./industry.js";
+import { classifyQueryStatus } from "./outcome.js";
 import type { StructuredQuery } from "./schema.js";
 import type {
   CompileMetadataSource,
@@ -51,7 +52,9 @@ export async function compileStructuredQuery(
   const ok =
     unresolved.length === 0 && coverage.every((entry) => entry.relation !== "unrepresentable");
 
-  return { ok, objectType, filters, resolved, coverage, warnings, unresolved };
+  const compiled: CompileResult = { ok, objectType, filters, resolved, coverage, warnings, unresolved, status: "ok" };
+  compiled.status = classifyQueryStatus(compiled);
+  return compiled;
 }
 
 function namesFrom(raw: unknown): string[] {

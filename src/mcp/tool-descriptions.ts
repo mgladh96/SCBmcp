@@ -94,41 +94,54 @@ Börja här i stället för includeCodeTables=true. Koder slås upp med scb_look
 
 export const LOOKUP_CODES_DESCRIPTION = `Sök i cacheade kodtabeller (in-memory index från listCategories + getCategoryValues) utan att dumpa hela tabellen.
 
+Alias: scb_discover (samma motor). Föredra scb_query först; använd discover/lookup bara när du utforskar koder.
+
 Input: objectType, query, valfri kind (industry|geography|size|status), category, parentCode, limit (standard 25).
 Tom query + parentCode listar SNI-barn. Tom query + kind/category listar kodtabellvärden.
 
 Svar: { matches: [{ objectType, kind, category, code, label, level?, parentCode?, hasChildren?, score }] }.
-Varje träff är filterklar: kopiera category + code rakt in i count/search. På kategorin Bransch: branchLevel = min(3, level) (bokstav→1, 2 siffror→2, 3+→3).
+Varje träff är filterklar: kopiera category + code rakt in i count/search, eller skicka industry.codes till scb_query.
+På kategorin Bransch: branchLevel = min(3, level) (bokstav→1, 2 siffror→2, 3+→3).
 
 Discovery är metadata-driven (lexikal BM25-lik ranking). Inga query→SNI-kod-mappningar. Språkalias expanderar bara söktérmer (bygg→byggverksamhet/byggnad), aldrig koder F/41/42/43.`;
+
+export const DISCOVER_CODES_DESCRIPTION = LOOKUP_CODES_DESCRIPTION;
 
 export const FILTER_HINTS_DESCRIPTION = `Statisk tabell frågeklass → rekommenderade kategorier/variabler/standardstatus. Ingen LLM.
 
 questionClass: companies_in_region | workplaces_in_region | industry_and_place | name_contains | employee_size | organization_number.
 Valfri objectType. Namn binds mot cachead katalog när den finns.`;
 
-export const COMPILE_QUERY_DESCRIPTION = `Kompilera StructuredQuery till SCB-filter (dry-run). Ingen företags-/arbetsställe-sökning.
+export const COMPILE_QUERY_DESCRIPTION = `Valfri dry-run: kompilera StructuredQuery till SCB-filter. Ingen företags-/arbetsställe-sökning. Krävs INTE på happy path — föredra scb_query.
 
 Princip: agenten förstår användaren; SCBmcp förstår SCB. Skicka INTE { text: "..." } eller fritext. Agenten äger objectType (company=JE / workplace=AE) — servern gissar inte.
 
-industry är alltid objekt { query, level? }, aldrig en bar sträng. Kompilatorn är en convenience-wrapper: samma discoverCodes-motor som scb_lookup_codes. Tydlig toppträff/sammanhängande SNI-familj → filter. Tvetydiga discovery-träffar → unresolved + candidates (inte ett påhittat filter). Inga query→SNI-kod-mappningar. fields[] är semantiska id:n (name, organizationNumber, municipality, employeeCount) — inte SCB-namn som "OrgNr (10 siffror)".
+industry är alltid objekt { query, level? } eller { codes, category?, branchLevel? }, aldrig en bar sträng. codes = filterklara SNI-koder från scb_query choose (query krävs inte då). Kompilatorn wrappar samma discoverCodes-motor som scb_discover. Tydlig toppträff/sammanhängande SNI-familj → filter. Tvetydiga discovery-träffar → status=choose + candidates (inte ett påhittat filter). Tomt/orepresenterbart → status=impossible. Inga query→SNI-kod-mappningar. fields[] är semantiska id:n (name, organizationNumber, municipality, employeeCount) — inte SCB-namn som "OrgNr (10 siffror)".
 
-Svar: { ok, objectType, layout, filters, resolved, coverage, warnings, unresolved }. unresolved[].candidates är rankade discovery-träffar. Kompakt — ingen katalogdump.
+Svar: { ok, status, objectType, layout, filters, resolved, coverage, warnings, unresolved }. unresolved[].candidates är rankade discovery-träffar. Kompakt — ingen katalogdump.
 
 coverage[] per villkor: { constraint, requested, applied, relation, exact, message }.
 relation: exact | superset | subset | partial | unrepresentable.
 Anställda 10–15 mot SCB-klass 10–19 → superset, exact=false. Aldrig tyst "exact" vid bandapproximation. Aldrig Omsättningsklass för employees.
 
-Kan träffa metadata/kodtabell internt (cache). Använd scb_count_then_fetch för räkna+hämta.`;
+Kan träffa metadata/kodtabell internt (cache). Använd scb_query för räkna+hämta.`;
 
-export const COUNT_THEN_FETCH_DESCRIPTION = `Kompilera StructuredQuery (om needed), räkna, hämta när 1≤count≤2000. Happy path: 1 verktygsanrop (eller compile + denna = 2).
+export const QUERY_DESCRIPTION = `Primär happy path: StructuredQuery → (vid behov) discovery → räkna → hämta. Föredra detta först. Högst två anrop: tvetydig bransch ger status=choose med filterklara candidates i samma svar; andra anropet skickar industry.codes.
 
-Två inmatningar:
-1) StructuredQuery — objectType (obligatorisk) + industry/geography/employees/status/maxRows/fields. Status default active. Coverage beräknas.
-2) Redan kompilerat { objectType, filters, maxRows?, fields? }. Semantiska slotar ignoreras. Coverage för industry/geo/employees saknas då.
+Tre utfall (aldrig tyst 41 vs båt-30):
+- status: "ok" — count + projicerade rader + coverage + resolved.
+- status: "choose" — max 5 filterklara candidates (category, code, label, level?, parentCode?, score?, why). Geografi/anställda kan redan vara resolved. Hitta INTE på ett filter; välj kod och anropa scb_query igen med industry.codes (query behövs inte). Ingen extra scb_discover-runda krävs.
+- status: "impossible" — orepresenterbart/olöst med reason + ev. candidates.
 
-Vid count=0, QUERY_TOO_BROAD eller kompileringsfel: strukturerat fel med nextAction, coverage+resolved, inga stora payloads.
-Vid träff: results med semantiska nycklar (name, organizationNumber, …) enligt live hamta-nycklar (JE: Företagsnamn, OrgNr/PeOrgNr, Säteskommun, Storleksklass), plus Reklam. Skickar INTE operator Finns/ArLikaMed för att projicera Namn/OrgNr (SCB 400). coverage och resolved följer ALLTID med.
+StructuredQuery: objectType (obligatorisk) + industry/geography/employees/status/maxRows/fields. industry: { query, level? } eller { codes: ["41"], category?, branchLevel? }. Status default active. Coverage beräknas. Semantiska fields, inte SCB-namn.
 
-Ingen NL. Ingen server-LLM. Agenten äger objectType.`;
+Redan kompilerat { objectType, filters, maxRows?, fields? } fungerar fortfarande (semantiska slotar ignoreras då).
+
+Vid count=0 eller QUERY_TOO_BROAD: strukturerat fel med nextAction, coverage+resolved. Ingen NL. Ingen server-LLM. Agenten äger objectType.
+
+Alias: scb_count_then_fetch (samma motor).`;
+
+export const COUNT_THEN_FETCH_DESCRIPTION = `Alias för scb_query (samma motor). Föredra namnet scb_query.
+
+${QUERY_DESCRIPTION}`;
 

@@ -28,7 +28,7 @@ const CASES_PATH = join(dirname(fileURLToPath(import.meta.url)), "blind-cases.js
 
 const coverageRelationSchema = z.enum(["exact", "superset", "subset", "partial", "unrepresentable"]);
 
-const fetchOutcomeSchema = z.enum(["success", "no_matches", "too_broad", "compile_fail"]);
+const fetchOutcomeSchema = z.enum(["success", "no_matches", "too_broad", "compile_fail", "choose", "impossible"]);
 
 export const evalCaseSchema = z.object({
   id: z.string().min(1),
@@ -69,7 +69,7 @@ export type CaseResult = {
   falseExact: boolean;
   compileOk: boolean;
   unresolved: boolean;
-  fetchOutcome: "success" | "no_matches" | "too_broad" | "compile_fail" | "error";
+  fetchOutcome: "success" | "no_matches" | "too_broad" | "compile_fail" | "choose" | "impossible" | "error";
   objectTypeOk: boolean;
   layoutOk: boolean;
   wrongCategoryClass: boolean;
@@ -194,7 +194,7 @@ export function tryLiveClient(): { client: ScbClient } | { skipped: string } {
 
 async function callTool(
   handlers: ToolHandlers,
-  name: "scb_compile_query" | "scb_count_then_fetch",
+  name: "scb_compile_query" | "scb_count_then_fetch" | "scb_query",
   input: unknown,
 ): Promise<ToolJson> {
   const result = await handlers[name](input);
@@ -286,11 +286,12 @@ function statusCategoryInFilters(compiled: CompilePayload): boolean {
 }
 
 function fetchOutcomeFromTool(fetchResult: ToolJson | undefined, compileOk: boolean): CaseResult["fetchOutcome"] {
-  if (!compileOk) {
-    return "compile_fail";
+  const status = String(fetchResult?.payload.status ?? "");
+  if (status === "choose" || status === "impossible") {
+    return status;
   }
   if (!fetchResult) {
-    return "compile_fail";
+    return compileOk ? "error" : "compile_fail";
   }
   if (!fetchResult.isError) {
     return "success";
@@ -334,12 +335,17 @@ export function scoreCase(
     failures.push(`layout ${layout} ≠ ${expect.layout}`);
   }
 
-  const expectedCompileOk = expect.compileOk ?? expect.fetchOutcome !== "compile_fail";
+  const expectedCompileOk =
+    expect.compileOk ??
+    (expect.fetchOutcome !== "compile_fail" &&
+      expect.fetchOutcome !== "choose" &&
+      expect.fetchOutcome !== "impossible");
   if (compileOk !== expectedCompileOk) {
     failures.push(`compileOk=${compileOk}, expected ${expectedCompileOk}`);
   }
 
-  const expectedFetch = expect.fetchOutcome ?? (expectedCompileOk ? "success" : "compile_fail");
+  const expectedFetch =
+    expect.fetchOutcome ?? (expectedCompileOk ? "success" : "impossible");
   if (options.fetchOutcome !== expectedFetch) {
     failures.push(`fetchOutcome ${options.fetchOutcome} ≠ ${expectedFetch}`);
   }
@@ -356,7 +362,7 @@ export function scoreCase(
 
   const geoCat = geographyCategory(compiled);
   const geoFold = fold(geoCat);
-  if (expect.geographyCategoryContains && compileOk) {
+  if (expect.geographyCategoryContains && (compileOk || geoCat)) {
     if (!categoryMatchesExpect(geoCat, expect.geographyCategoryContains)) {
       failures.push(`geography category "${geoCat}" does not contain ${expect.geographyCategoryContains}`);
     }
@@ -505,14 +511,10 @@ export async function runOneCase(evalCase: EvalCase, handlers: ToolHandlers): Pr
   toolCalls += 1;
   const compiled = compileResult.payload as CompilePayload;
 
-  let fetchResult: ToolJson | undefined;
-  const expectFetch = evalCase.expect.fetchOutcome ?? (evalCase.expect.compileOk === false ? "compile_fail" : "success");
-  if (expectFetch !== "compile_fail" || compiled.ok === true) {
-    fetchResult = await callTool(handlers, "scb_count_then_fetch", input);
-    toolCalls += 1;
-  }
+  const fetchResult = await callTool(handlers, "scb_query", input);
+  toolCalls += 1;
 
-  const texts = [compileResult.text, fetchResult?.text ?? ""];
+  const texts = [compileResult.text, fetchResult.text];
   const payloadText = texts.join("");
   const payloadBytes = Buffer.byteLength(payloadText, "utf8");
   const fetchOutcome = fetchOutcomeFromTool(fetchResult, compiled.ok === true);
@@ -581,8 +583,8 @@ export async function runLiveEval(cases = loadEvalCases()): Promise<EvalSummary>
 
 export function formatReport(mocked: EvalSummary, live?: EvalSummary): string {
   const lines: string[] = [];
-  lines.push("SCB blind eval — feature freeze (no new MCP tools)");
-  lines.push("Happy path ≤2 tools: scb_count_then_fetch alone, or scb_compile_query + scb_count_then_fetch.");
+  lines.push("SCB blind eval — feature freeze (no query→SNI maps, no new discovery ranking).");
+  lines.push("Happy path ≤2 tools: scb_query first (choose → industry.codes). scb_compile_query is optional dry-run.");
   lines.push("False exact (claimed exact coverage that is wider/narrower than requested) is a CRITICAL fail.");
   lines.push("Hard-fail: any falseExact, or golden-tier regression. Blind E2E % is the milestone metric (no 90% gate).");
   lines.push("");

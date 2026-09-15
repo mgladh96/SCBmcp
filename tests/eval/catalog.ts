@@ -22,6 +22,7 @@ const MUNICIPALITIES: Array<{ code: string; label: string }> = [
   { code: "1280", label: "Malmö" },
   { code: "1480", label: "Göteborg" },
   { code: "2180", label: "Gävle" },
+  { code: "2281", label: "Sundsvall" },
   { code: "2380", label: "Östersund" },
   { code: "2580", label: "Luleå" },
 ];

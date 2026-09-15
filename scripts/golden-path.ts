@@ -9,7 +9,7 @@
  *   SCB_LIVE_TESTS=true pnpm verify:live
  * those require an SCB .pfx (absent in CI).
  *
- * Happy path for agents: ≤2 MCP tools (scb_compile_query optional, scb_count_then_fetch required).
+ * Happy path for agents: ≤2 MCP tools (scb_query first; scb_compile_query optional dry-run).
  */
 import { compileStructuredQuery, countThenFetch, structuredQuerySchema } from "../src/scb/compile/index.js";
 import { fold } from "../src/domain/catalog.js";
@@ -94,8 +94,9 @@ async function main(): Promise<void> {
       {
         ok: true,
         happyPathToolCalls: {
-          typical: ["scb_count_then_fetch"],
-          withDryRun: ["scb_compile_query", "scb_count_then_fetch"],
+          typical: ["scb_query"],
+          withDryRun: ["scb_compile_query", "scb_query"],
+          ambiguous: ["scb_query", "scb_query"],
           max: 2,
           note: "Agent owns NL → StructuredQuery. Internal metadata lookups are not agent tool calls.",
         },

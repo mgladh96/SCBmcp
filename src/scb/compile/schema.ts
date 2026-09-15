@@ -11,7 +11,10 @@ export const industrySlotSchema = z
     query: z
       .string()
       .min(1)
-      .describe("Bransch/SNI-söksträng mot SCB-kodtabellen, t.ex. bygg. Inte en fri NL-fråga."),
+      .optional()
+      .describe(
+        "Bransch/SNI-söksträng mot SCB-kodtabellen, t.ex. bygg. Inte en fri NL-fråga. Ignoreras när codes är satt.",
+      ),
     level: z
       .number()
       .int()
@@ -21,8 +24,38 @@ export const industrySlotSchema = z
       .describe(
         "SNI-nivå. SCB Bransch kräver Branschniva 1–3 (bokstav→1, 2 siffror→2, 3+→3). Utelämnad: kompilatorn sätter giltig nivå från discovery-träffar. 2-siffrig bransch * skickas utan Branschniva.",
       ),
+    codes: z
+      .array(z.string().min(1))
+      .min(1)
+      .optional()
+      .describe(
+        "Filterklara SNI/branschkoder från scb_query status=choose (t.ex. [\"41\"] eller [\"41\",\"42\",\"43\"]). Kräver inte query. Flera koder = OR i samma branschkategori. Valideras mot SCB-metadata.",
+      ),
+    category: z
+      .string()
+      .min(1)
+      .optional()
+      .describe("Valfri SCB-branschkategori när codes är satt. Måste finnas i katalogen."),
+    branchLevel: z
+      .number()
+      .int()
+      .min(1)
+      .max(3)
+      .optional()
+      .describe("Valfri Branschniva 1–3 när codes är satt. Annars härleds från koderna."),
   })
-  .describe("Alltid objekt { query, level? } — aldrig en bar sträng.");
+  .superRefine((value, ctx) => {
+    if (!value.query && (!value.codes || value.codes.length === 0)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "industry kräver query eller codes.",
+        path: ["query"],
+      });
+    }
+  })
+  .describe(
+    "Alltid objekt { query, level? } eller { codes, category?, branchLevel? } — aldrig en bar sträng. codes räcker efter choose; query ignoreras då.",
+  );
 
 export const geographySlotSchema = z.object({
   type: z.enum(["county", "municipality", "aregion"]),
