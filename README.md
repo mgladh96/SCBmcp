@@ -180,7 +180,7 @@ LLM-agenten förstår användaren. **SCBmcp förstår SCB.** Agenten mappar natu
 
 `objectType` är obligatorisk: `company` = JE, `workplace` = AE. Semantiska `fields` är id:n som `name`, `organizationNumber`, `municipality`, `employeeCount` — inte SCB-namn som `"OrgNr (10 siffror)"` eller `"SätesKommun"`. Mappingen ligger i `resolved.fields`.
 
-Happy path: **högst två** MCP-anrop — `scb_query` först. Entydig bransch → `status: "ok"`. Tvetydig → `status: "choose"` med candidates; andra anropet `industry.codes` (t.ex. `["41"]`). `scb_compile_query` är valfri dry-run. Metadata värms i bakgrunden vid start.
+**Agentkontrakt:** föredra **`scb_query`** först med StructuredQuery (`objectType`, `industry`, `geography`, `employees`, `maxRows`, `fields`) — inte `{ text: "..." }`. `status: "ok"` → använd rader, respektera coverage. `"choose"` → välj candidate, `scb_query` igen med `industry.codes` (ingen ny discovery). `"impossible"` → `scb_discover` med andra vardagstermer eller bredda villkor; hitta inte på SNI-koder. Discover/lookup bara vid utforskning. `scb_compile_query` är valfri dry-run. Högst två MCP-anrop på happy path.
 
 ### StructuredQuery
 
@@ -338,7 +338,7 @@ Bekräfta så här:
 
 Användare: ”Hitta aktiva byggföretag i Jämtland med 10–15 anställda.”
 
-**Happy path (≤2 verktyg):** agenten sätter `objectType` och anropar `scb_query`. Exempel Sundsvall: `{ industry: { query: "bygg" }, geography: { type: "municipality", value: "Sundsvall" }, employees: { min: 20, max: 30 } }` → `status: "choose"` med candidates (inte ett påhittat 41-filter). Andra anropet: `industry: { codes: ["41"] }` → `ok` med rader och anställd-coverage (20–30 mot SCB 20–49 = `superset`). Entydig discovery (t.ex. sektion F i metadata) kan ge `ok` redan i första anropet. Valfritt `scb_compile_query` för dry-run. Inte `schema_summary` + `lookup_codes` i det här flödet.
+**Happy path (≤2 verktyg):** agenten sätter `objectType` och anropar `scb_query`. Exempel Sundsvall: `{ industry: { query: "bygg" }, geography: { type: "municipality", value: "Sundsvall" }, employees: { min: 20, max: 30 } }` → `status: "choose"` med candidates (inte ett påhittat 41-filter). Andra anropet: `industry: { codes: ["41"] }` → `ok` med rader och anställd-coverage (20–30 mot SCB 20–49 = `superset`). Entydig discovery (t.ex. sektion F i metadata) kan ge `ok` redan i första anropet. `status: "impossible"` → `scb_discover` med andra vardagstermer eller bredda villkor; hitta inte på SNI-koder. Valfritt `scb_compile_query` för dry-run. Inte `schema_summary` + `lookup_codes` i det här flödet.
 
 **Manuellt filterflöde** (när du behöver råa SCB-namn):
 
