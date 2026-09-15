@@ -41,9 +41,10 @@ export function chooseCandidates(candidates: IndustryCandidate[], limit = QUERY_
       item.parentCode = candidate.parentCode;
     }
     item.why =
-      candidate.score !== undefined
+      candidate.why ??
+      (candidate.score !== undefined
         ? `discovery-träff #${index + 1} (score ${candidate.score})`
-        : `discovery-träff #${index + 1}`;
+        : `discovery-träff #${index + 1}`);
     return item;
   });
 }

@@ -16,6 +16,7 @@ import {
   rankIndustryCategories,
 } from "./geography.js";
 import type { StructuredQuery } from "./schema.js";
+import { QUERY_CHOOSE_CANDIDATE_LIMIT } from "./outcome.js";
 import type {
   CompileMetadataSource,
   CoverageEntry,
@@ -42,6 +43,11 @@ export const INDUSTRY_CLUSTER_DOMINANT_SHARE = 0.7;
  * Exact code/label still resolve.
  */
 export const INDUSTRY_CLUSTER_MIN_SCORE = 80;
+/**
+ * SNI level at/above which a lone cluster hit is too narrow to auto-ok when a
+ * broader structural parent exists in discovery candidates or the catalog.
+ */
+export const INDUSTRY_NARROW_LEVEL_MIN = 4;
 
 export function clampBranchLevel(level: number): number {
   return Math.min(BRANSCH_API_LEVEL_MAX, Math.max(BRANSCH_API_LEVEL_MIN, Math.trunc(level)));
@@ -92,11 +98,17 @@ type UniqueHit = CodeLookupMatch & { categories: string[] };
  *
  * Ambiguous / empty: `unresolved` + `candidates` (the ranked discovery hits).
  * Never invent a filter from mixed families (e.g. 41 hus vs 30 fartyg).
+ *
+ * Fine-grained (SNI level ≥ 4 / 5-digit) score-gap or dominant-family hits are
+ * not auto-ok when a broader structural parent exists in candidates or catalog —
+ * return unresolved so the agent can choose (narrow vs 3-/2-digit parent).
+ * Exact code/label still resolve. No language→code mapping.
  */
 export function resolveIndustryCluster(
   matches: CodeLookupMatch[],
   query: string,
   requestedLevel?: number,
+  catalogHits: CodeLookupMatch[] = [],
 ): IndustryClusterDecision {
   const candidates = toIndustryCandidates(matches);
   const unique = uniqueByCode(matches);
@@ -133,35 +145,46 @@ export function resolveIndustryCluster(
   const secondScore = second?.score ?? 0;
   const close = pool.filter((hit) => (hit.score ?? 0) >= topScore * INDUSTRY_CLUSTER_GAP_RATIO);
 
+  let decision: IndustryClusterDecision | undefined;
   if (isExactCodeQuery(query, top)) {
-    return resolvedFromHits([top], requestedLevel, true, "exact_code", candidates);
+    decision = resolvedFromHits([top], requestedLevel, true, "exact_code", candidates);
   }
 
-  if (isExactLabelQuery(query, top.label)) {
+  if (!decision && isExactLabelQuery(query, top.label)) {
     const unrelated = close.filter((hit) => !isSniDescendantOrSelf(hit.code, top.code) && !isSniDescendantOrSelf(top.code, hit.code));
     if (unrelated.length === 0) {
-      return resolvedFromHits([top], requestedLevel, true, "exact_label", candidates);
+      decision = resolvedFromHits([top], requestedLevel, true, "exact_label", candidates);
     }
   }
 
-  if (topScore >= INDUSTRY_CLUSTER_MIN_SCORE && (second === undefined || secondScore < topScore * INDUSTRY_CLUSTER_GAP_RATIO)) {
-    return resolvedFromHits([top], requestedLevel, false, "score_gap", candidates);
+  if (
+    !decision &&
+    topScore >= INDUSTRY_CLUSTER_MIN_SCORE &&
+    (second === undefined || secondScore < topScore * INDUSTRY_CLUSTER_GAP_RATIO)
+  ) {
+    decision = resolvedFromHits([top], requestedLevel, false, "score_gap", candidates);
   }
 
-  const family = dominantFamily(close);
-  if (family && topScore >= INDUSTRY_CLUSTER_MIN_SCORE) {
-    const inFamily = close.filter((hit) => sniFamilyKey(hit) === family);
-    const taken = takeCoarsestLevel(inFamily, requestedLevel);
-    if (taken.length > 0) {
-      return resolvedFromHits(taken, requestedLevel, false, "dominant_family", candidates);
+  if (!decision) {
+    const family = dominantFamily(close);
+    if (family && topScore >= INDUSTRY_CLUSTER_MIN_SCORE) {
+      const inFamily = close.filter((hit) => sniFamilyKey(hit) === family);
+      const taken = takeCoarsestLevel(inFamily, requestedLevel);
+      if (taken.length > 0) {
+        decision = resolvedFromHits(taken, requestedLevel, false, "dominant_family", candidates);
+      }
     }
   }
 
-  return {
-    status: "unresolved",
-    reason: `Discovery för "${query}" är tvetydig (ingen tydlig toppträff eller sammanhängande SNI-familj). Välj bland candidates eller scb_lookup_codes.`,
-    candidates,
-  };
+  if (!decision) {
+    decision = {
+      status: "unresolved",
+      reason: `Discovery för "${query}" är tvetydig (ingen tydlig toppträff eller sammanhängande SNI-familj). Välj bland candidates eller scb_lookup_codes.`,
+      candidates,
+    };
+  }
+
+  return maybeChooseInsteadOfNarrowOk(decision, query, requestedLevel, unique, catalogHits);
 }
 
 export async function applyIndustry(
@@ -231,7 +254,8 @@ export async function applyIndustry(
     }
   }
 
-  const decision = resolveIndustryCluster(matches, queryText, slot.level);
+  const catalogHits = catalogAncestorHits(client, objectType, ranked, matches);
+  const decision = resolveIndustryCluster(matches, queryText, slot.level, catalogHits);
   if (decision.status === "unresolved") {
     unresolved.push({
       constraint: "industry",
@@ -615,6 +639,216 @@ function isSniDescendantOrSelf(code: string, ancestor: string): boolean {
     current = structuralSniParent(current);
   }
   return false;
+}
+
+function isFineGrainedCode(code: string): boolean {
+  const level = sniLevel(code);
+  return level !== undefined && level >= INDUSTRY_NARROW_LEVEL_MIN;
+}
+
+function maybeChooseInsteadOfNarrowOk(
+  decision: IndustryClusterDecision,
+  query: string,
+  requestedLevel: number | undefined,
+  unique: UniqueHit[],
+  catalogHits: CodeLookupMatch[],
+): IndustryClusterDecision {
+  if (decision.status !== "resolved") {
+    return decision;
+  }
+  if (decision.reason === "exact_code" || decision.reason === "exact_label") {
+    return decision;
+  }
+  if (requestedLevel !== undefined && requestedLevel >= INDUSTRY_NARROW_LEVEL_MIN) {
+    return decision;
+  }
+  if (decision.codes.length === 0 || !decision.codes.every((item) => isFineGrainedCode(item.code))) {
+    return decision;
+  }
+
+  const pool = uniqueByCode([...unique, ...catalogHits]);
+  const narrowCodes = decision.codes.map((item) => item.code);
+  const broader = collectStructuralParents(narrowCodes, pool);
+  if (broader.length === 0) {
+    return decision;
+  }
+
+  const narrowHits = narrowCodes.map((code) => hitForCode(code, pool, decision)).filter((hit): hit is UniqueHit => hit !== undefined);
+  const siblings = collectFamilySiblings(narrowCodes, pool, new Set([...narrowCodes, ...broader.map((hit) => hit.code)]));
+  const packaged = packageNarrowChooseCandidates(narrowHits, broader, siblings);
+  const shown = packaged.map((item) => item.code).join(", ");
+  return {
+    status: "unresolved",
+    reason: `Discovery för "${query}" träffade en smal SNI-kod; en bredare förälder finns (${shown}). Välj bland candidates och anropa scb_query med industry.codes.`,
+    candidates: packaged,
+  };
+}
+
+function hitForCode(
+  code: string,
+  pool: UniqueHit[],
+  decision: Extract<IndustryClusterDecision, { status: "resolved" }>,
+): UniqueHit | undefined {
+  const found = pool.find((hit) => fold(hit.code) === fold(code));
+  if (found) {
+    return found;
+  }
+  const fromDecision = decision.codes.find((item) => fold(item.code) === fold(code));
+  if (!fromDecision) {
+    return undefined;
+  }
+  return {
+    objectType: pool[0]?.objectType ?? "company",
+    category: decision.category,
+    code: fromDecision.code,
+    label: fromDecision.label,
+    level: sniLevel(fromDecision.code),
+    parentCode: structuralSniParent(fromDecision.code),
+    categories: [decision.category],
+  };
+}
+
+/** Ancestors from immediate parent down to 2-digit division — not section letters. */
+function collectStructuralParents(narrowCodes: string[], pool: UniqueHit[]): UniqueHit[] {
+  const out: UniqueHit[] = [];
+  const seen = new Set(narrowCodes.map((code) => fold(code)));
+  for (const code of narrowCodes) {
+    let parent = structuralSniParent(code);
+    while (parent) {
+      const level = sniLevel(parent);
+      if (level === undefined || level < 2) {
+        break;
+      }
+      const key = fold(parent);
+      if (!seen.has(key)) {
+        const hit = pool.find((item) => fold(item.code) === key);
+        if (hit) {
+          out.push(hit);
+          seen.add(key);
+        }
+      }
+      if (level <= 2) {
+        break;
+      }
+      parent = structuralSniParent(parent);
+    }
+  }
+  return out;
+}
+
+function collectFamilySiblings(narrowCodes: string[], pool: UniqueHit[], skip: Set<string>): UniqueHit[] {
+  const prefixes = new Set(narrowCodes.map((code) => code.trim().slice(0, 3)).filter((prefix) => prefix.length >= 3));
+  const skipFolded = new Set([...skip].map((code) => fold(code)));
+  return pool.filter((hit) => {
+    if (skipFolded.has(fold(hit.code))) {
+      return false;
+    }
+    return prefixes.has(hit.code.trim().slice(0, 3));
+  });
+}
+
+function packageNarrowChooseCandidates(
+  narrowHits: UniqueHit[],
+  broaderHits: UniqueHit[],
+  siblingHits: UniqueHit[],
+): IndustryCandidate[] {
+  const ordered: Array<{ hit: UniqueHit; why: string }> = [];
+  const seen = new Set<string>();
+  const push = (hit: UniqueHit, why: string) => {
+    const key = fold(hit.code);
+    if (!key || seen.has(key) || ordered.length >= QUERY_CHOOSE_CANDIDATE_LIMIT) {
+      return;
+    }
+    seen.add(key);
+    ordered.push({ hit, why });
+  };
+
+  for (const hit of narrowHits) {
+    const digits = sniLevel(hit.code) ?? hit.code.trim().length;
+    push(hit, `smal ${digits}-siffrig träff — kan missa närliggande SNI`);
+  }
+  for (const hit of broaderHits) {
+    push(hit, `bredare förälder ${hit.code} i samma SNI-familj`);
+  }
+  for (const hit of siblingHits) {
+    push(hit, `närliggande SNI i samma familj`);
+  }
+
+  return ordered.map(({ hit, why }) => candidateFromHit(hit, why));
+}
+
+function candidateFromHit(hit: UniqueHit, why: string): IndustryCandidate {
+  const item: IndustryCandidate = { category: hit.category, code: hit.code, label: hit.label, why };
+  if (hit.score !== undefined) {
+    item.score = hit.score;
+  }
+  if (hit.level !== undefined) {
+    item.level = hit.level;
+  }
+  if (hit.parentCode !== undefined) {
+    item.parentCode = hit.parentCode;
+  }
+  return item;
+}
+
+function catalogAncestorHits(
+  client: CompileMetadataSource,
+  objectType: ObjectType,
+  categoryNames: string[],
+  matches: CodeLookupMatch[],
+): CodeLookupMatch[] {
+  const unique = uniqueByCode(matches);
+  const have = new Set(unique.map((hit) => fold(hit.code)));
+  const needed = new Set<string>();
+  for (const hit of unique.slice(0, INDUSTRY_CLUSTER_TOP_K)) {
+    if (!isFineGrainedCode(hit.code)) {
+      continue;
+    }
+    let parent = structuralSniParent(hit.code);
+    while (parent) {
+      const level = sniLevel(parent);
+      if (level === undefined || level < 2) {
+        break;
+      }
+      const key = fold(parent);
+      if (!have.has(key)) {
+        needed.add(key);
+      }
+      if (level <= 2) {
+        break;
+      }
+      parent = structuralSniParent(parent);
+    }
+  }
+  if (needed.size === 0) {
+    return [];
+  }
+
+  const found: CodeLookupMatch[] = [];
+  const foundCodes = new Set<string>();
+  for (const category of rankIndustryCategories(categoryNames, undefined)) {
+    const rows = client.offlineCodeRows?.(objectType, category);
+    if (!rows) {
+      continue;
+    }
+    for (const row of rows) {
+      const key = fold(row.code);
+      if (!needed.has(key) || foundCodes.has(key) || have.has(key)) {
+        continue;
+      }
+      foundCodes.add(key);
+      found.push({
+        objectType,
+        category,
+        code: row.code,
+        label: row.label,
+        kind: "industry",
+        level: sniLevel(row.code),
+        parentCode: structuralSniParent(row.code),
+      });
+    }
+  }
+  return found;
 }
 
 function uniqueKeepOrder(values: string[]): string[] {

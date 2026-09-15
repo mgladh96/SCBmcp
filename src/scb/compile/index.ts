@@ -20,6 +20,7 @@ export {
   INDUSTRY_CLUSTER_GAP_RATIO,
   INDUSTRY_CLUSTER_MIN_SCORE,
   INDUSTRY_CLUSTER_TOP_K,
+  INDUSTRY_NARROW_LEVEL_MIN,
   branschLevelForCode,
   clampBranchLevel,
   resolveIndustryCluster,
