@@ -8,6 +8,8 @@ import { identityInvalidErrorDetails, normalizeIdentityInFilters } from "../scb/
 import { SCB_OPERATOR_NAMES } from "../scb/operators.js";
 import { toMetadataEnvelope, truncateMetadataItems } from "../scb/payload.js";
 import { projectSearchResults } from "../scb/projection.js";
+import { compileStructuredQuery, countThenFetch } from "../scb/compile/index.js";
+import { compileQueryInputSchema, countThenFetchInputSchema } from "../scb/compile/schema.js";
 import {
   countCompaniesInputSchema,
   countWorkplacesInputSchema,
@@ -92,6 +94,26 @@ function withFilterWarning<T extends Record<string, unknown>>(
 
 function unique(values: string[]): string[] {
   return [...new Set(values)];
+}
+
+function isFreeTextQuery(input: unknown): boolean {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return false;
+  }
+  const record = input as Record<string, unknown>;
+  if (typeof record.text === "string") {
+    return true;
+  }
+  return typeof record.query === "string" && record.industry === undefined;
+}
+
+function nlRejectedError(): ScbError {
+  return new ScbError(
+    "SCB_INVALID_QUERY",
+    "SCBmcp parsear inte naturligt språk. Agenten mappar NL → StructuredQuery; servern kompilerar bara SCB-filter.",
+    false,
+    { origin: "nl_rejected", hint: "Skicka objectType + industry/geography/employees/status/fields. Inte { text }." },
+  );
 }
 
 function preparedFilters(
@@ -520,6 +542,65 @@ export function createToolHandlers(client: ScbClient, log = createLogger()) {
         return errorResult(error);
       }
     },
+
+    async scb_compile_query(input: unknown): Promise<ToolResult> {
+      if (isFreeTextQuery(input)) {
+        return errorResult(nlRejectedError());
+      }
+      const parsed = compileQueryInputSchema.safeParse(input);
+      if (!parsed.success) {
+        return errorResult(invalidInput("scb_compile_query", parsed.error));
+      }
+      const started = Date.now();
+      try {
+        const compiled = await compileStructuredQuery(parsed.data, client);
+        log.info("MCP tool", {
+          tool: "scb_compile_query",
+          durationMs: Date.now() - started,
+          status: 200,
+          objectType: compiled.objectType,
+        });
+        return jsonResult({
+          ok: compiled.ok,
+          objectType: compiled.objectType,
+          layout: compiled.resolved.layout,
+          filters: compiled.filters,
+          resolved: compiled.resolved,
+          coverage: compiled.coverage,
+          warnings: compiled.warnings,
+          unresolved: compiled.unresolved,
+          source: SOURCE_LABEL,
+        });
+      } catch (error) {
+        logToolError("scb_compile_query", started, error);
+        return errorResult(error);
+      }
+    },
+
+    async scb_count_then_fetch(input: unknown): Promise<ToolResult> {
+      if (isFreeTextQuery(input)) {
+        return errorResult(nlRejectedError());
+      }
+      const parsed = countThenFetchInputSchema.safeParse(input);
+      if (!parsed.success) {
+        return errorResult(invalidInput("scb_count_then_fetch", parsed.error));
+      }
+      const started = Date.now();
+      try {
+        const payload = await countThenFetch(client, parsed.data);
+        log.info("MCP tool", {
+          tool: "scb_count_then_fetch",
+          durationMs: Date.now() - started,
+          status: 200,
+          objectType: payload.objectType,
+          count: payload.count,
+        });
+        return jsonResult(payload);
+      } catch (error) {
+        logToolError("scb_count_then_fetch", started, error);
+        return errorResult(error);
+      }
+    },
   };
 
   function logToolError(tool: string, started: number, error: unknown): void {
@@ -532,7 +613,7 @@ export function createToolHandlers(client: ScbClient, log = createLogger()) {
         ? { retryAfterMs: error.details.retryAfterMs }
         : {}),
     };
-    if (code === "QUERY_TOO_BROAD" || code === "SCB_RATE_LIMITED") {
+    if (code === "QUERY_TOO_BROAD" || code === "SCB_RATE_LIMITED" || code === "SCB_NO_MATCHES") {
       log.info("MCP tool rejected", fields);
       return;
     }

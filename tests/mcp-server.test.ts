@@ -39,6 +39,8 @@ describe("MCP server instructions and prompts", () => {
     const instructions = client.getInstructions() ?? "";
     expect(instructions).toBe(SERVER_INSTRUCTIONS);
     expect(instructions).toContain("Säteslän");
+    expect(instructions).toContain("StructuredQuery");
+    expect(instructions).toContain("Agenten förstår användaren");
     expect(instructions).toContain("2000");
     expect(instructions).toContain("Innehaller");
     expect(instructions).toContain("Reklam");
@@ -55,7 +57,14 @@ describe("MCP server instructions and prompts", () => {
     const tools = await client.listTools();
     const names = tools.tools.map((tool) => tool.name);
     expect(names).toEqual(
-      expect.arrayContaining(["scb_schema_summary", "scb_lookup_codes", "scb_filter_hints", "scb_explain_query"]),
+      expect.arrayContaining([
+        "scb_schema_summary",
+        "scb_lookup_codes",
+        "scb_filter_hints",
+        "scb_explain_query",
+        "scb_compile_query",
+        "scb_count_then_fetch",
+      ]),
     );
     const resources = await client.listResources();
     expect(resources.resources.map((resource) => resource.uri)).toContain("scb://operators");

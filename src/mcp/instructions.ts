@@ -1,28 +1,36 @@
 export const SERVER_INSTRUCTIONS = `Du är ansluten till SCB Allmänna företagsregister via MCP. Detta är ett dataåtkomstlager: ingen LLM, ingen paginering, ingen historik, inga andra källor.
 
-Objekttyper (alltid explicita, aldrig ett generiskt "provider"):
-- company = JE (juridisk enhet). Geografi = Säteslän / Säteskommun.
-- workplace = AE (arbetsställe). Geografi = Län / Kommun där stället ligger.
-Gävleborg är AE-kategorin Län om användaren menar belägenhet. Använd Säteslän bara när användaren menar säte.
+Princip: **Agenten förstår användaren. SCBmcp förstår SCB.**
+- Du (agenten) mappar naturligt språk → StructuredQuery. Skicka aldrig { text: "..." } hit för frågeförståelse.
+- SCBmcp kompilerar StructuredQuery till SCB-kategorier, koder och serialisering från metadata. objectType är obligatorisk (company=JE, workplace=AE). Servern gissar inte JE/AE.
 
-Arbetsflöde:
-1. scb_schema_summary för rätt objectType (kompakt katalog). Kategori- och variabelnamn MÅSTE komma därifrån eller från listverktygen (exakt stavning).
-2. scb_lookup_codes för koder från etiketter (Gävleborg, bygg, verksam, 10-49) — inte includeCodeTables=true.
-3. scb_explain_query (valfritt, noll SCB-anrop) för att se serialiserad POST, operatorer och varningar innan kvot används.
-4. scb_count_* för att iterera. Om count=0: stanna, eller kontrollera koder / JE vs AE. Om count>2000: smalna filter. Paginera inte.
-5. scb_search_* hämtar bara när count≤2000. Search räknar internt och återanvänder en nylig count (kort TTL). Anropa inte extra count direkt före search. SCB hämtar hela mängden; fields/maxRows (standard 75) krymper bara agentvyn. Reklam följer alltid med.
-6. Tomma filter = hela populationen (warning). SCB returnerar högst 2000 rader. MCP kan klippa ytterligare (omittedByMaxRows).
+Objekttyper (alltid explicita):
+- company = JE (juridisk enhet). Geografi = Säteslän / Säteskommun (säte), inte AE Län.
+- workplace = AE (arbetsställe). Geografi = Län / Kommun (belägenhet).
+
+Happy path (≤2 verktyg):
+1. Valfritt scb_compile_query — dry-run, coverage (t.ex. anställda 10–15 mot klass 10–19 = superset, exact=false).
+2. scb_count_then_fetch med samma StructuredQuery. Räknar, hämtar om 1≤count≤2000, projicerar semantiska fält. coverage+resolved följer med.
+
+StructuredQuery: objectType; industry: { query, level? } (alltid objekt); geography: { type: county|municipality|aregion, value }; employees: { min?, max? }; status: active|any (default active); maxRows; fields: semantiska id:n (name, organizationNumber, municipality, employeeCount) — inte SCB-namn.
+
+Manuellt/avancerat (när du behöver råa SCB-filter):
+1. scb_schema_summary för rätt objectType. Namn MÅSTE komma därifrån eller listverktygen.
+2. scb_lookup_codes för koder från etiketter — inte includeCodeTables=true.
+3. scb_explain_query (noll SCB-anrop) för serialiserad POST.
+4. scb_count_* sedan scb_search_* (search räknar internt; återanvänd nylig count). count=0 → stanna. count>2000 → smalna, paginera inte.
+5. Tomma filter = hela populationen (warning). SCB högst 2000 rader.
 
 Anti-mönster:
-- Namn innehåller "Bygg" ≠ SNI/bransch. Använd kodtabell + ev. branchLevel.
+- Namn innehåller "Bygg" ≠ SNI/bransch. StructuredQuery.industry.query slår upp koder; fritext "Bygg" i företagsnamn är ett annat filter.
 - Operatorer är SCB-enum: Innehaller, ArLikaMed, BorjarPa, Mellan, FranOchMed, TillOchMed, Finns, FinnsInte — inte Contains/Equals.
-- AnstSME ≠ Storleksklass Anställda. Använd namnet listverktyget returnerar.
-- Behåll fältet Reklam; kringgå inte reklamspärr. Search projicerar fält i MCP; Reklam strippas aldrig.
-- Org.nr: live JE-namn är OrgNr (10 siffror) och OrgNr (12 siffror), inte PeOrgNr. 10 siffror på 12-siffriga fältet → prefix 16. CFAR är 8 siffror, operator ArLikaMed.
+- AnstSME ≠ Storleksklass Anställda. Numeriskt employees-intervall mappas till klasser med ärlig coverage (aldrig tyst exact vid bandapproximation).
+- Behåll fältet Reklam; kringgå inte reklamspärr.
+- Org.nr: live JE-namn är OrgNr (10 siffror) och OrgNr (12 siffror), inte PeOrgNr. Semantic field organizationNumber löses per objectType.
 - Ingen historik i detta API.
 - Kvot: 10 anrop / 10 sekunder. Vid SCB_RATE_LIMITED: vänta retryAfterMs och upprepa samma anrop (retry_same). Servern väntar inte tyst.
 
-Fel-JSON: läs nextAction (retry_same | retry_modified | abort_unanswerable) och nextTools. QUERY_TOO_BROAD.details innehåller appliedFilters och candidateNarrowingDimensions (katalognamn när cache finns). SCB_UNKNOWN_* har nearestNames. Ogiltig operator har allowedOperators.`;
+Fel-JSON: läs nextAction (retry_same | retry_modified | abort_unanswerable) och nextTools. QUERY_TOO_BROAD och SCB_NO_MATCHES från scb_count_then_fetch innehåller coverage+resolved. SCB_UNKNOWN_* har nearestNames.`;
 
 export function exploreSchemaPrompt(objectType: string): string {
   const layout = objectType === "workplace" ? "AE (workplace)" : "JE (company)";
@@ -40,6 +48,8 @@ export function countThenFetchPrompt(objectType: string): string {
   const countTool = objectType === "workplace" ? "scb_count_workplaces" : "scb_count_companies";
   const searchTool = objectType === "workplace" ? "scb_search_workplaces" : "scb_search_companies";
   return `Räkna sedan hämta för objectType="${objectType}".
+
+Föredra verktyget scb_count_then_fetch med StructuredQuery (agenten äger objectType; coverage följer med). Denna prompt är det manuella filterflödet.
 
 1. Bygg filter med namn från listverktygen och koder från kodtabeller.
 2. Anropa ${countTool} medan du itererar.

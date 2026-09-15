@@ -103,3 +103,29 @@ export const FILTER_HINTS_DESCRIPTION = `Statisk tabell frågeklass → rekommen
 
 questionClass: companies_in_region | workplaces_in_region | industry_and_place | name_contains | employee_size | organization_number.
 Valfri objectType. Namn binds mot cachead katalog när den finns.`;
+
+export const COMPILE_QUERY_DESCRIPTION = `Kompilera StructuredQuery till SCB-filter (dry-run). Ingen företags-/arbetsställe-sökning.
+
+Princip: agenten förstår användaren; SCBmcp förstår SCB. Skicka INTE { text: "..." } eller fritext. Agenten äger objectType (company=JE / workplace=AE) — servern gissar inte.
+
+industry är alltid objekt { query, level? }, aldrig en bar sträng. fields[] är semantiska id:n (name, organizationNumber, municipality, employeeCount) — inte SCB-namn som "OrgNr (10 siffror)".
+
+Svar: { ok, objectType, layout, filters, resolved, coverage, warnings, unresolved }. Kompakt — ingen katalogdump.
+
+coverage[] per villkor: { constraint, requested, applied, relation, exact, message }.
+relation: exact | superset | subset | partial | unrepresentable.
+Anställda 10–15 mot SCB-klass 10–19 → superset, exact=false. Aldrig tyst "exact" vid bandapproximation.
+
+Kan träffa metadata/kodtabell internt (cache). Använd scb_count_then_fetch för räkna+hämta.`;
+
+export const COUNT_THEN_FETCH_DESCRIPTION = `Kompilera StructuredQuery (om needed), räkna, hämta när 1≤count≤2000. Happy path: 1 verktygsanrop (eller compile + denna = 2).
+
+Två inmatningar:
+1) StructuredQuery — objectType (obligatorisk) + industry/geography/employees/status/maxRows/fields. Status default active. Coverage beräknas.
+2) Redan kompilerat { objectType, filters, maxRows?, fields? }. Semantiska slotar ignoreras. Coverage för industry/geo/employees saknas då.
+
+Vid count=0, QUERY_TOO_BROAD eller kompileringsfel: strukturerat fel med nextAction, coverage+resolved, inga stora payloads.
+Vid träff: results med semantiska nycklar (name, organizationNumber, …) enligt resolved.fields, plus Reklam. coverage och resolved följer ALLTID med.
+
+Ingen NL. Ingen server-LLM. Agenten äger objectType.`;
+
