@@ -6,9 +6,30 @@ export const WEBSITE_PAGE_TIMEOUT_MS = 4_000;
 export const WEBSITE_BUDGET_MS = 8_000;
 export const WEBSITE_SUMMARY_MAX_CHARS = 600;
 
-const DIRECTORY_HOSTS = ["allabolag.se", "hitta.se", "ratsit.se", "linkedin.com", "facebook.com", "fb.com"];
+const DIRECTORY_HOSTS = [
+  "allabolag.se",
+  "hitta.se",
+  "ratsit.se",
+  "linkedin.com",
+  "facebook.com",
+  "fb.com",
+  "yayo.se",
+  "eniro.se",
+  "merinfo.se",
+  "bolagsfakta.se",
+  "proff.se",
+  "upplysning.se",
+  "foretagsfakta.se",
+  "118100.se",
+  "gulasidorna.se",
+  "bizzdo.se",
+  "kompass.com",
+  "kompass.se",
+];
 const PAGE_HINTS = ["tjanster", "tjanst", "services", "service", "omoss", "about", "kunder", "customers", "verksamhet", "erbjudanden"];
 const LEGAL_SUFFIX = /(aktiebolag|handelsbolag|kommanditbolag|ab|hb|kb)$/u;
+const STOP_TOKENS = new Set(["och", "the", "for", "sweden", "sverige", "entreprenad"]);
+const TITLE_CHECK_LIMIT = 3;
 const CUSTOMER_TYPES: Array<{ pattern: RegExp; label: string }> = [
   { pattern: /privatperson|konsument/u, label: "Privatpersoner" },
   { pattern: /företag|foretag|bolag/u, label: "Företag" },
@@ -80,6 +101,17 @@ export function websiteRuntimeFromConfig(
 
 type Page = { url: string; html: string; text: string };
 
+type SearchNotes = {
+  answer?: string;
+  snippets: string[];
+};
+
+type SearchHit = {
+  url: URL;
+  title?: string;
+  content?: string;
+};
+
 export async function summarizeCompanyWebsite(
   input: CompanyWebsiteInput,
   runtime: WebsiteRuntime = {},
@@ -90,24 +122,21 @@ export async function summarizeCompanyWebsite(
   const budgetMs = runtime.budgetMs ?? WEBSITE_BUDGET_MS;
   const started = now();
   const remaining = (): number => Math.max(0, budgetMs - (now() - started));
-  const official = input.url?.trim()
-    ? normalizeOfficialUrl(input.url)
-    : await searchOfficialUrl(input, runtime.tavilyApiKey, fetchImpl, remaining, pageTimeoutMs);
-  const home = await fetchPage(official.href, fetchImpl, Math.min(pageTimeoutMs, remaining()));
-  if (!home) {
-    throw new WebsiteSummaryError("WEBSITE_UNAVAILABLE", "Webbplatsen svarade inte.");
-  }
-  const links = pickInternalLinks(home.html, new URL(home.url)).slice(0, 3);
+  const resolved = await resolveOfficialSite(input, runtime.tavilyApiKey, fetchImpl, remaining, pageTimeoutMs);
+  const home = resolved.page;
+  const links = pickInternalLinks(home.html, new URL(home.url), input.name, input.city).slice(0, 3);
   const extras = await Promise.all(
-    links.map((link) => fetchPage(link, fetchImpl, Math.min(pageTimeoutMs, remaining()))),
+    links.map((link) => fetchPage(link, fetchImpl, Math.min(pageTimeoutMs, remaining()), input.name, input.city)),
   );
   const pages = [home, ...extras.filter((page): page is Page => page !== null)];
   const text = pages.map((page) => page.text).join("\n");
-  if (fold(text).length < 40) {
+  const extracted = extractWebsiteFacts(text, input.city);
+  extracted.summary = capSummary(composeSummary(pages, resolved.notes, input.name, input.city) || extracted.summary);
+  const readable = `${text} ${extracted.summary}`;
+  if (fold(readable).length < 40) {
     throw new WebsiteSummaryError("WEBSITE_UNAVAILABLE", "Webbplatsen gick inte att läsa.");
   }
-  const extracted = extractWebsiteFacts(text, input.city);
-  const nameMatched = hostMatchesName(new URL(home.url).hostname, input.name);
+  const nameMatched = siteMatchesName(home, input.name, input.city);
   const heuristic = toSummary(home.url, extracted, confidenceFor(nameMatched, text.length, pages.length, extracted.summary.length));
   if (!runtime.openAiApiKey || remaining() < 1_500) {
     return heuristic;
@@ -126,13 +155,34 @@ export async function summarizeCompanyWebsite(
   };
 }
 
-async function searchOfficialUrl(
+async function resolveOfficialSite(
   input: CompanyWebsiteInput,
   apiKey: string | undefined,
   fetchImpl: typeof fetch,
   remaining: () => number,
   pageTimeoutMs: number,
-): Promise<URL> {
+): Promise<{ page: Page; notes?: SearchNotes }> {
+  if (input.url?.trim()) {
+    const official = normalizeOfficialUrl(input.url, input.name, input.city);
+    const page = await fetchPage(official.href, fetchImpl, Math.min(pageTimeoutMs, remaining()), input.name, input.city);
+    if (!page) {
+      throw new WebsiteSummaryError("WEBSITE_UNAVAILABLE", "Webbplatsen svarade inte.");
+    }
+    if (!siteMatchesName(page, input.name, input.city)) {
+      throw new WebsiteSummaryError("WEBSITE_NOT_FOUND", "Jag hittade ingen officiell webbplats.");
+    }
+    return { page };
+  }
+  return searchOfficialSite(input, apiKey, fetchImpl, remaining, pageTimeoutMs);
+}
+
+async function searchOfficialSite(
+  input: CompanyWebsiteInput,
+  apiKey: string | undefined,
+  fetchImpl: typeof fetch,
+  remaining: () => number,
+  pageTimeoutMs: number,
+): Promise<{ page: Page; notes: SearchNotes }> {
   if (!apiKey) {
     throw new WebsiteSummaryError("WEBSITE_NOT_CONFIGURED", "Webbsök är inte aktiverat.");
   }
@@ -153,7 +203,7 @@ async function searchOfficialUrl(
         query,
         search_depth: "basic",
         max_results: 8,
-        include_answer: false,
+        include_answer: true,
         exclude_domains: DIRECTORY_HOSTS,
       }),
       signal: AbortSignal.timeout(timeoutMs),
@@ -164,79 +214,156 @@ async function searchOfficialUrl(
   if (!response.ok) {
     throw new WebsiteSummaryError("WEBSITE_UNAVAILABLE", "Jag kunde inte söka efter webbplatsen.");
   }
-  const payload = (await response.json()) as { results?: Array<{ url?: string }> };
-  const candidates = (payload.results ?? [])
-    .map((item) => item.url)
-    .filter((url): url is string => typeof url === "string")
-    .map((url) => safeUrl(url))
-    .filter((url): url is URL => url !== undefined && !isDirectoryUrl(url) && !isBlockedAddress(url));
-  const picked = pickBestCandidate(candidates, input.name);
-  if (!picked) {
-    throw new WebsiteSummaryError("WEBSITE_NOT_FOUND", "Jag hittade ingen officiell webbplats.");
+  const payload = (await response.json()) as {
+    answer?: unknown;
+    results?: Array<{ url?: string; title?: string; content?: string }>;
+  };
+  const hits = (payload.results ?? []).flatMap((item) => {
+    const url = typeof item.url === "string" ? safeUrl(item.url) : undefined;
+    if (!url || isBlockedAddress(url) || isDirectoryUrl(url, input.name, input.city)) {
+      return [];
+    }
+    return [{
+      url,
+      ...(typeof item.title === "string" && item.title.trim() ? { title: item.title.trim() } : {}),
+      ...(typeof item.content === "string" && item.content.trim() ? { content: item.content.trim() } : {}),
+    } satisfies SearchHit];
+  });
+  const answer = typeof payload.answer === "string" && payload.answer.trim() ? payload.answer.trim() : undefined;
+  const picked = pickBestCandidate(hits.map((hit) => hit.url), input.name, input.city);
+  if (picked) {
+    const page = await fetchPage(picked.href, fetchImpl, Math.min(pageTimeoutMs, remaining()), input.name, input.city);
+    if (!page) {
+      throw new WebsiteSummaryError("WEBSITE_UNAVAILABLE", "Webbplatsen svarade inte.");
+    }
+    if (!siteMatchesName(page, input.name, input.city)) {
+      throw new WebsiteSummaryError("WEBSITE_NOT_FOUND", "Jag hittade ingen officiell webbplats.");
+    }
+    return { page, notes: notesFor(answer, hits, page) };
   }
-  return picked;
+  for (const hit of hits.slice(0, TITLE_CHECK_LIMIT)) {
+    const page = await fetchPage(hit.url.href, fetchImpl, Math.min(pageTimeoutMs, remaining()), input.name, input.city);
+    if (!page || !siteMatchesName(page, input.name, input.city)) {
+      continue;
+    }
+    return { page, notes: notesFor(answer, hits, page) };
+  }
+  throw new WebsiteSummaryError("WEBSITE_NOT_FOUND", "Jag hittade ingen officiell webbplats.");
 }
 
-function normalizeOfficialUrl(raw: string): URL {
+function notesFor(answer: string | undefined, hits: SearchHit[], page: Page): SearchNotes {
+  const host = hostKey(new URL(page.url));
+  const snippets = unique(
+    hits
+      .filter((hit) => hostKey(hit.url) === host && hit.content)
+      .map((hit) => hit.content ?? ""),
+  );
+  return {
+    ...(answer ? { answer } : {}),
+    snippets,
+  };
+}
+
+function normalizeOfficialUrl(raw: string, name?: string, city?: string): URL {
   const url = safeUrl(raw.includes("://") ? raw : `https://${raw}`);
-  if (!url || isBlockedAddress(url) || isDirectoryUrl(url)) {
+  if (!url || isBlockedAddress(url) || isDirectoryUrl(url, name, city)) {
     throw new WebsiteSummaryError("WEBSITE_INVALID_URL", "Jag kan inte hämta den adressen.");
   }
   return url;
 }
 
-export function pickBestCandidate(candidates: URL[], name: string): URL | undefined {
+export function pickBestCandidate(candidates: URL[], name: string, city?: string): URL | undefined {
   let best: { url: URL; score: number } | undefined;
   for (const url of candidates) {
-    const score = domainScore(url.hostname, name);
+    if (isDirectoryUrl(url, name, city)) {
+      continue;
+    }
+    const score = domainScore(url.hostname, name, city);
+    if (score <= 0) {
+      continue;
+    }
     if (!best || score > best.score) {
       best = { url, score };
     }
   }
-  if (!best) {
-    return undefined;
-  }
-  if (best.score > 0) {
-    return best.url;
-  }
-  return candidates[0];
+  return best?.url;
 }
 
-function domainScore(hostname: string, name: string): number {
+function domainScore(hostname: string, name: string, city?: string): number {
   const host = fold(hostname.replace(/^www\./u, ""));
-  const tokens = nameTokens(name);
-  if (tokens.length === 0) {
+  const tokens = nameTokens(name, city);
+  if (tokens.length === 0 || !tokens.every((token) => host.includes(token))) {
     return 0;
   }
   const whole = tokens.join("");
   if (whole.length >= 4 && host.includes(whole)) {
     return 100;
   }
-  let score = 0;
-  for (const token of tokens) {
-    if (token.length >= 4 && host.includes(token)) {
-      score = Math.max(score, 80);
-    } else if (token.length >= 3 && host.includes(token)) {
-      score = Math.max(score, 40);
-    }
+  const longest = Math.max(...tokens.map((token) => token.length));
+  return longest >= 4 ? 80 : 40;
+}
+
+function hostMatchesName(hostname: string, name: string, city?: string): boolean {
+  return domainScore(hostname, name, city) > 0;
+}
+
+function nameTokens(name: string, city?: string): string[] {
+  let source = name;
+  if (city?.trim()) {
+    const escaped = city.trim().replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+    source = source.replace(new RegExp(`\\bi\\s+${escaped}\\b`, "giu"), " ");
   }
-  return score;
-}
-
-function hostMatchesName(hostname: string, name: string): boolean {
-  return domainScore(hostname, name) >= 40;
-}
-
-function nameTokens(name: string): string[] {
-  return name
+  source = source.replace(/\bi\s+\p{Lu}[\p{L}\p{M}'’-]*$/u, " ");
+  return source
     .split(/[^0-9A-Za-zÅÄÖåäö]+/u)
     .map((part) => fold(part).replace(LEGAL_SUFFIX, ""))
-    .filter((part) => part.length >= 3 && !["och", "the", "for", "sweden", "sverige"].includes(part));
+    .filter((part) => part.length >= 3 && !STOP_TOKENS.has(part));
 }
 
-function isDirectoryUrl(url: URL): boolean {
+function siteMatchesName(page: Page, name: string, city?: string): boolean {
+  const url = safeUrl(page.url);
+  if (!url || isDirectoryUrl(url, name, city) || isBlockedAddress(url)) {
+    return false;
+  }
+  if (hostMatchesName(url.hostname, name, city)) {
+    return true;
+  }
+  return pageMentionsName(page.html, name, city);
+}
+
+function pageMentionsName(html: string, name: string, city?: string): boolean {
+  const tokens = nameTokens(name, city);
+  if (tokens.length === 0) {
+    return false;
+  }
+  const title = fold(metaOrTitle(html));
+  const h1 = fold(headingTexts(html, "h1").join(" "));
+  const inTitle = tokens.every((token) => title.includes(token));
+  const inH1 = tokens.every((token) => h1.includes(token));
+  return inTitle || inH1;
+}
+
+function isDirectoryHost(url: URL): boolean {
   const host = url.hostname.toLowerCase().replace(/^www\./u, "");
   return DIRECTORY_HOSTS.some((domain) => host === domain || host.endsWith(`.${domain}`));
+}
+
+function hasDirectoryPath(url: URL): boolean {
+  const path = url.pathname.toLowerCase();
+  return /\/foretag(?:\/|$)/u.test(path) || /\/company(?:\/|$)/u.test(path);
+}
+
+function isDirectoryUrl(url: URL, name?: string, city?: string): boolean {
+  if (isDirectoryHost(url)) {
+    return true;
+  }
+  if (!hasDirectoryPath(url)) {
+    return false;
+  }
+  if (!name || !hostMatchesName(url.hostname, name, city)) {
+    return true;
+  }
+  return false;
 }
 
 function isBlockedAddress(url: URL): boolean {
@@ -256,9 +383,15 @@ function isBlockedAddress(url: URL): boolean {
   return a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
 }
 
-async function fetchPage(raw: string, fetchImpl: typeof fetch, timeoutMs: number): Promise<Page | null> {
+async function fetchPage(
+  raw: string,
+  fetchImpl: typeof fetch,
+  timeoutMs: number,
+  name?: string,
+  city?: string,
+): Promise<Page | null> {
   const url = safeUrl(raw);
-  if (!url || isBlockedAddress(url) || isDirectoryUrl(url) || timeoutMs < 200) {
+  if (!url || isBlockedAddress(url) || isDirectoryUrl(url, name, city) || timeoutMs < 200) {
     return null;
   }
   try {
@@ -271,17 +404,17 @@ async function fetchPage(raw: string, fetchImpl: typeof fetch, timeoutMs: number
       return null;
     }
     const finalUrl = safeUrl(response.url || url.href) ?? url;
-    if (isBlockedAddress(finalUrl) || isDirectoryUrl(finalUrl)) {
+    if (isBlockedAddress(finalUrl) || isDirectoryUrl(finalUrl, name, city)) {
       return null;
     }
     const html = (await response.text()).slice(0, 500_000);
-    return { url: finalUrl.href, html, text: htmlToText(html) };
+    return { url: finalUrl.href, html, text: pageText(html) };
   } catch {
     return null;
   }
 }
 
-export function pickInternalLinks(html: string, base: URL): string[] {
+export function pickInternalLinks(html: string, base: URL, name?: string, city?: string): string[] {
   const source = html.replace(/<script[\s\S]*?<\/script>/giu, " ").replace(/<style[\s\S]*?<\/style>/giu, " ");
   const seen = new Set<string>([normalizePath(base)]);
   const scored: Array<{ href: string; score: number; index: number }> = [];
@@ -299,7 +432,7 @@ export function pickInternalLinks(html: string, base: URL): string[] {
     } catch {
       url = undefined;
     }
-    if (!url || isBlockedAddress(url) || isDirectoryUrl(url)) {
+    if (!url || isBlockedAddress(url) || isDirectoryUrl(url, name, city)) {
       continue;
     }
     if (hostKey(url) !== hostKey(base)) {
@@ -328,6 +461,158 @@ function hostKey(url: URL): string {
 
 function normalizePath(url: URL): string {
   return `${hostKey(url)}${url.pathname.replace(/\/+$/u, "") || "/"}`;
+}
+
+function pageText(html: string): string {
+  return htmlToText(stripChrome(html))
+    .split("\n")
+    .filter((line) => !isChromeText(line))
+    .join("\n");
+}
+
+function stripChrome(html: string): string {
+  let source = html
+    .replace(/<script\b[\s\S]*?<\/script>/giu, " ")
+    .replace(/<style\b[\s\S]*?<\/style>/giu, " ")
+    .replace(/<noscript\b[\s\S]*?<\/noscript>/giu, " ")
+    .replace(/<nav\b[\s\S]*?<\/nav>/giu, " ")
+    .replace(/<footer\b[\s\S]*?<\/footer>/giu, " ");
+  const chrome = /<(div|section|aside|header)\b[^>]*(?:cookie|consent|gdpr|kakor)[^>]*>[\s\S]*?<\/\1>/giu;
+  let previous = "";
+  while (previous !== source) {
+    previous = source;
+    source = source.replace(chrome, " ");
+  }
+  return source;
+}
+
+function metaContent(html: string, key: string): string {
+  const patterns = [
+    new RegExp(`<meta\\b[^>]*(?:name|property)\\s*=\\s*["']${key}["'][^>]*content\\s*=\\s*["']([^"']*)["']`, "iu"),
+    new RegExp(`<meta\\b[^>]*content\\s*=\\s*["']([^"']*)["'][^>]*(?:name|property)\\s*=\\s*["']${key}["']`, "iu"),
+  ];
+  for (const pattern of patterns) {
+    const match = pattern.exec(html);
+    const value = match?.[1]?.trim();
+    if (value) {
+      return decodeEntities(value).replace(/\s+/gu, " ").trim();
+    }
+  }
+  return "";
+}
+
+function metaOrTitle(html: string): string {
+  const match = /<title\b[^>]*>([\s\S]*?)<\/title>/iu.exec(html);
+  return decodeEntities(match?.[1] ?? "").replace(/\s+/gu, " ").trim();
+}
+
+function headingTexts(html: string, level: "h1" | "h2"): string[] {
+  const pattern = new RegExp(`<${level}\\b[^>]*>([\\s\\S]*?)<\\/${level}>`, "giu");
+  const headings: string[] = [];
+  for (const match of html.matchAll(pattern)) {
+    const text = htmlToText(match[1] ?? "").replace(/\s+/gu, " ").trim();
+    if (text) {
+      headings.push(text);
+    }
+  }
+  return headings;
+}
+
+function paragraphTexts(html: string): string[] {
+  const paragraphs: string[] = [];
+  for (const match of html.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/giu)) {
+    const text = htmlToText(match[1] ?? "").replace(/\s+/gu, " ").trim();
+    if (text) {
+      paragraphs.push(text);
+    }
+  }
+  return paragraphs;
+}
+
+function readContent(html: string): { description: string; headings: string[]; paragraphs: string[] } {
+  const stripped = stripChrome(html);
+  const description = metaContent(html, "description") || metaContent(html, "og:description");
+  const headings = [...headingTexts(stripped, "h1"), ...headingTexts(stripped, "h2")].filter(
+    (heading) => heading.length >= 2 && heading.length <= 120 && !isChromeText(heading),
+  );
+  const paragraphs = paragraphTexts(stripped)
+    .filter((paragraph) => paragraph.length >= 40 && paragraph.length <= 400 && !isChromeText(paragraph))
+    .slice(0, 3);
+  return { description, headings, paragraphs };
+}
+
+function composeSummary(pages: Page[], notes: SearchNotes | undefined, name: string, city?: string): string {
+  const parts: string[] = [];
+  const push = (value: string): void => {
+    const clean = value.replace(/\s+/gu, " ").trim();
+    if (!clean || isChromeText(clean)) {
+      return;
+    }
+    const folded = fold(clean);
+    if (parts.some((part) => {
+      const existing = fold(part);
+      return existing.includes(folded) || (folded.includes(existing) && existing.length > 20);
+    })) {
+      return;
+    }
+    parts.push(clean);
+  };
+  for (const page of pages) {
+    const content = readContent(page.html);
+    if (content.description) {
+      push(content.description);
+    }
+    for (const heading of content.headings) {
+      push(heading);
+    }
+    for (const paragraph of content.paragraphs) {
+      push(paragraph);
+    }
+  }
+  const pageSummary = parts.join(" ");
+  if (notes && pageSummary.length < WEBSITE_SUMMARY_MAX_CHARS) {
+    const extras = pageSummary.length < 120 ? [...noteSentences(notes.answer, name, city), ...notes.snippets] : notes.snippets;
+    for (const extra of extras.flatMap((blob) => contentSentences(blob))) {
+      push(extra);
+      if (parts.join(" ").length >= WEBSITE_SUMMARY_MAX_CHARS) {
+        break;
+      }
+    }
+  }
+  return parts.join(" ");
+}
+
+function noteSentences(answer: string | undefined, name: string, city?: string): string[] {
+  if (!answer) {
+    return [];
+  }
+  const tokens = nameTokens(name, city);
+  if (tokens.length > 0 && !tokens.every((token) => fold(answer).includes(token))) {
+    return [];
+  }
+  return [answer];
+}
+
+function contentSentences(blob: string): string[] {
+  return blob
+    .split(/(?<=[.!?])\s+/u)
+    .map((sentence) => sentence.replace(/\s+/gu, " ").trim())
+    .filter((sentence) => sentence.length >= 40 && !isChromeText(sentence));
+}
+
+function isChromeText(value: string): boolean {
+  const folded = fold(value);
+  if (!folded) {
+    return true;
+  }
+  const business = /erbjud|saljer|tillverk|utfor|tjanst|verksam|markarbete|kund|foretag|kommun/u.test(folded);
+  if (/cookie|kakor|acceptera|samtycke|gdpr/u.test(folded) && !business) {
+    return true;
+  }
+  if (/^(meny|loggain|varukorg|javascript)$/u.test(folded)) {
+    return true;
+  }
+  return /loggain|varukorg|javascript/u.test(folded) && !business;
 }
 
 export function htmlToText(html: string): string {

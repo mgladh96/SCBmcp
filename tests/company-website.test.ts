@@ -218,4 +218,176 @@ describe("company_website_summary", () => {
     expect(fallback.summary.toLowerCase()).toContain("möbler");
     expect(fallback.summary.length).toBeLessThanOrEqual(600);
   });
+
+  it("rejects directory hits for EAG Entreprenad instead of summarizing the wrong company", async () => {
+    const fetched: string[] = [];
+    const fetchImpl: typeof fetch = async (input, init) => {
+      const url = String(input);
+      if (url.includes("api.tavily.com")) {
+        const body = JSON.parse(String(init?.body)) as { include_answer?: boolean; exclude_domains?: string[] };
+        expect(body.include_answer).toBe(true);
+        expect(body.exclude_domains).toEqual(expect.arrayContaining([
+          "yayo.se",
+          "eniro.se",
+          "merinfo.se",
+          "bolagsfakta.se",
+          "proff.se",
+          "upplysning.se",
+          "foretagsfakta.se",
+          "118100.se",
+          "gulasidorna.se",
+          "bizzdo.se",
+          "kompass.com",
+        ]));
+        return jsonResponse(200, {
+          answer: "Henric Asplund rekryterar och driver en webbshop.",
+          results: [
+            { url: "https://yayo.se/foretag/asplund-henric-1186987/", title: "Henric Asplund", content: "Cookie. Rekryterar. Webbshop. Certifieringar." },
+            { url: "https://www.eniro.se/eag-entreprenad", content: "Katalogpost." },
+            { url: "https://www.merinfo.se/foretag/eag", content: "Katalogpost." },
+            { url: "https://www.bolagsfakta.se/eag", content: "Katalogpost." },
+            { url: "https://www.proff.se/foretag/eag", content: "Katalogpost." },
+            { url: "https://www.upplysning.se/eag", content: "Katalogpost." },
+            { url: "https://www.foretagsfakta.se/eag", content: "Katalogpost." },
+            { url: "https://www.118100.se/eag", content: "Katalogpost." },
+            { url: "https://www.gulasidorna.se/eag", content: "Katalogpost." },
+            { url: "https://www.bizzdo.se/eag", content: "Katalogpost." },
+            { url: "https://www.kompass.com/eag", content: "Katalogpost." },
+            { url: "https://example.com/foretag/eag-entreprenad", title: "EAG Entreprenad", content: "Katalog." },
+            { url: "https://news.example.org/company/eag", title: "EAG Entreprenad", content: "Artikel." },
+            {
+              url: "https://asplund.example/",
+              title: "Henric Asplund",
+              content: "Henric Asplund rekryterar och har en webbshop.",
+            },
+          ],
+        });
+      }
+      fetched.push(url);
+      return new Response(
+        "<title>Henric Asplund - katalog</title><nav>Webbshop Rekryterar</nav><h1>Henric Asplund</h1><footer>ISO 9001 certifierad</footer><p>Cookie. Acceptera alla kakor för att läsa katalogsidan om ett annat företag.</p>",
+        { status: 200, headers: { "Content-Type": "text/html" } },
+      );
+    };
+    const result = await createToolHandlers(createTestClient(async () => jsonResponse(200, [])), silent, {
+      website: { fetchImpl, tavilyApiKey: "tavily-test" },
+    }).company_website_summary({ name: "EAG Entreprenad", city: "Brunflo" });
+    expect(result.isError).toBe(true);
+    const payload = JSON.parse(result.content[0]?.text ?? "{}") as { code: string; message: string };
+    expect(payload).toEqual({ code: "WEBSITE_NOT_FOUND", message: "Jag hittade ingen officiell webbplats." });
+    expect(fetched).toEqual(["https://asplund.example/"]);
+  });
+
+  it("summarizes EAG Entreprenad from its own pages and ignores directory chrome", async () => {
+    const fetchImpl: typeof fetch = async (input) => {
+      const url = String(input);
+      if (url.includes("api.tavily.com")) {
+        return jsonResponse(200, {
+          answer: "Henric Asplund rekryterar och har en webbshop.",
+          results: [
+            {
+              url: "https://yayo.se/foretag/asplund-henric-1186987/",
+              title: "Henric Asplund",
+              content: "Cookie. Rekryterar. Webbshop. Certifieringar.",
+            },
+            {
+              url: "https://www.eag.se/",
+              title: "EAG Entreprenad",
+              content: "EAG Entreprenad utför markarbeten och schakt åt kommuner i Brunflo och övriga Jämtland.",
+            },
+          ],
+        });
+      }
+      if (url === "https://www.eag.se/") {
+        return new Response(
+          `<!doctype html><html><head>
+            <title>EAG Entreprenad</title>
+            <meta name="description" content="EAG Entreprenad utför mark- och anläggningsarbeten åt företag och kommuner i Jämtland.">
+          </head><body>
+            <nav>Webbshop Varukorg Rekryterar Meny</nav>
+            <div class="cookie-banner"><p>Cookie. Acceptera alla kakor för att fortsätta på sidan.</p></div>
+            <h1>EAG Entreprenad</h1>
+            <h2>Markarbeten</h2>
+            <p>Cookie. Acceptera.</p>
+            <p>Vi utför markarbeten, schakt och anläggning åt företag och kommuner i Jämtland, med bas i Brunflo.</p>
+            <footer>ISO 9001 certifierad. Besök vår webbshop. Vi rekryterar.</footer>
+          </body></html>`,
+          { status: 200, headers: { "Content-Type": "text/html" } },
+        );
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    };
+    const summary = await summarizeCompanyWebsite(
+      { name: "EAG Entreprenad AB i Brunflo", city: "Brunflo" },
+      { fetchImpl, tavilyApiKey: "tavily-test" },
+    );
+    expect(summary.url).toBe("https://www.eag.se/");
+    expect(summary.summary.toLowerCase()).toContain("mark");
+    expect(summary.summary.toLowerCase()).toContain("jämtland");
+    expect(summary.summary.toLowerCase()).not.toContain("cookie");
+    expect(summary.summary.toLowerCase()).not.toContain("webbshop");
+    expect(summary.summary.toLowerCase()).not.toContain("henric");
+    expect(summary.signals).toEqual([]);
+  });
+
+  it("accepts a non-matching domain when the title contains the company name", async () => {
+    const fetchImpl: typeof fetch = async (input) => {
+      const url = String(input);
+      if (url.includes("api.tavily.com")) {
+        return jsonResponse(200, {
+          results: [
+            { url: "https://yayo.se/foretag/asplund-henric-1186987/", title: "Henric Asplund" },
+            { url: "https://www.brunflobygge.se/", title: "EAG Entreprenad | Markarbeten i Brunflo" },
+          ],
+        });
+      }
+      expect(url).toBe("https://www.brunflobygge.se/");
+      return new Response(
+        `<title>EAG Entreprenad | Markarbeten i Brunflo</title>
+         <h1>Markarbeten</h1>
+         <p>EAG Entreprenad utför markarbeten och schakt åt företag i Brunflo och övriga Jämtland.</p>`,
+        { status: 200, headers: { "Content-Type": "text/html" } },
+      );
+    };
+    const summary = await summarizeCompanyWebsite(
+      { name: "EAG Entreprenad", city: "Brunflo" },
+      { fetchImpl, tavilyApiKey: "tavily-test" },
+    );
+    expect(summary.url).toBe("https://www.brunflobygge.se/");
+    expect(summary.summary.toLowerCase()).toContain("markarbeten");
+    expect(summary.signals).toEqual([]);
+  });
+
+  it("uses a same-host search snippet when the page itself is thin", async () => {
+    const fetchImpl: typeof fetch = async (input) => {
+      const url = String(input);
+      if (url.includes("api.tavily.com")) {
+        return jsonResponse(200, {
+          answer: "EAG Entreprenad är ett anläggningsföretag i Brunflo som utför markarbeten.",
+          results: [
+            {
+              url: "https://yayo.se/foretag/asplund-henric-1186987/",
+              content: "Henric Asplund rekryterar och har en webbshop med certifieringar.",
+            },
+            {
+              url: "https://www.eag.se/",
+              content: "EAG Entreprenad utför markarbeten och schakt åt kommuner i Brunflo och övriga Jämtland.",
+            },
+          ],
+        });
+      }
+      return new Response("<title>EAG Entreprenad</title><h1>EAG Entreprenad</h1><p>Välkommen.</p>", {
+        status: 200,
+        headers: { "Content-Type": "text/html" },
+      });
+    };
+    const summary = await summarizeCompanyWebsite(
+      { name: "EAG Entreprenad", city: "Brunflo" },
+      { fetchImpl, tavilyApiKey: "tavily-test" },
+    );
+    expect(summary.url).toBe("https://www.eag.se/");
+    expect(summary.summary.toLowerCase()).toContain("markarbeten");
+    expect(summary.summary.toLowerCase()).not.toContain("henric");
+    expect(summary.signals).toEqual([]);
+  });
 });
