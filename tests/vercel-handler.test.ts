@@ -130,7 +130,7 @@ describe("Vercel streamable HTTP handler", () => {
     await client.connect(transport);
     try {
       const tools = await client.listTools();
-      expect(tools.tools.map((tool) => tool.name)).toEqual(["scb_find_company"]);
+      expect(tools.tools.map((tool) => tool.name)).toEqual(["scb_find_company", "company_website_summary"]);
     } finally {
       await client.close();
     }
@@ -152,6 +152,6 @@ describe("Vercel streamable HTTP handler", () => {
     );
     expect(response.status).toBe(200);
     const body = (await response.json()) as { result?: { tools?: Array<{ name: string }> } };
-    expect(body.result?.tools?.map((tool) => tool.name)).toEqual(["scb_find_company"]);
+    expect(body.result?.tools?.map((tool) => tool.name)).toEqual(["scb_find_company", "company_website_summary"]);
   });
 });

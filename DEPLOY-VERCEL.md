@@ -13,7 +13,7 @@ The deployment is one Node.js function, `api/mcp.ts`, in region **arn1 (Stockhol
 
 `/mcp` is stateless streamable HTTP (JSON). `GET` and `DELETE` return **405**. That matches what ElevenLabs’ Streamable HTTP transport needs, and it does not hold an SSE stream inside the function timeout.
 
-`MCP_EXPOSED_TOOLS=voice` registers only `scb_find_company` (name search and organisation-number lookup; the row is the company details).
+`MCP_EXPOSED_TOOLS=voice` registers `scb_find_company` (name and organisation-number lookup) and `company_website_summary` (official website, short Swedish summary).
 
 ## 1. Import the repo
 
@@ -36,6 +36,8 @@ Mark every secret **Sensitive** so the dashboard will not show the value again a
 | `SCB_CERT_BASE64` | yes | base64 of the `.pfx`, one line |
 | `MCP_AUTH_TOKEN` | yes | long random token. Same value ElevenLabs will send |
 | `MCP_EXPOSED_TOOLS` | no | `voice` |
+| `TAVILY_API_KEY` | yes | Tavily Search API key. `company_website_summary` uses it when `url` is omitted |
+| `OPENAI_API_KEY` | yes | Optional. If set, the website summary is written by `gpt-4o-mini`. If unset, the tool returns extracted Swedish sentences and does not call a model |
 
 Do not set `SCB_CERT_PATH`. The function decodes `SCB_CERT_BASE64` in memory and does not write the pfx to disk. Vercel’s filesystem is read-only except `/tmp`.
 
@@ -95,7 +97,7 @@ curl -sS -X POST "$BASE/mcp" \
   -H 'Accept: application/json, text/event-stream' \
   -H 'mcp-protocol-version: 2025-03-26' \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}'
-# result.tools is only scb_find_company when MCP_EXPOSED_TOOLS=voice
+# result.tools is scb_find_company and company_website_summary when MCP_EXPOSED_TOOLS=voice
 ```
 
 A raw `Authorization: $TOKEN` header (no `Bearer` prefix) is also accepted. That is the ElevenLabs secret-token field when you do not type the word Bearer yourself.
@@ -111,7 +113,7 @@ In ElevenLabs → MCP server integrations → **Add Custom MCP Server**:
 3. **Transport:** Streamable HTTP (`STREAMABLE_HTTP`). Not SSE.
 4. **Secret token:** `Bearer <MCP_AUTH_TOKEN>` (the full Authorization header value). Or set HTTP header `X-MCP-Auth` to the token.
 5. **Tool approval:** **No approval** (`approval_policy: "auto_approve_all"`). Use that only because `voice` is a read-only lookup. If you clear `MCP_EXPOSED_TOOLS` and expose every tool, switch back to per-tool approval.
-6. Save, confirm the tool list is `scb_find_company`, and attach the integration to the agent.
+6. Save, confirm the tool list is `scb_find_company` and `company_website_summary`, and attach the integration to the agent.
 
 Do not put the token in the URL.
 
@@ -121,6 +123,15 @@ Do not put the token in the URL.
 | --- | --- |
 | Search by name | `{ "name": "Volvo" }` |
 | Company details | `{ "organizationNumber": "5560747569" }` |
+
+`company_website_summary` arguments:
+
+| Spoken request | Arguments |
+| --- | --- |
+| What does the company do? | `{ "name": "IKEA", "city": "Älmhult" }` |
+| User already named a site | `{ "name": "IKEA", "url": "https://www.ikea.com/se/sv/" }` |
+
+The tool searches with Tavily when `url` is missing, skips directory sites, and reads the homepage plus up to three internal pages. The spoken field is `summary` (about 600 characters). Without `OPENAI_API_KEY` it uses sentences taken from the pages.
 
 ## Limits
 

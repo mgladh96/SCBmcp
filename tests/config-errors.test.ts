@@ -129,7 +129,7 @@ describe("env validation", () => {
 
   it("restricts tools with the voice preset", () => {
     const config = loadConfig(validScbEnv({ MCP_EXPOSED_TOOLS: "voice" }));
-    expect(config.exposedTools).toEqual(["scb_find_company"]);
+    expect(config.exposedTools).toEqual(["scb_find_company", "company_website_summary"]);
   });
 
   it("rejects unknown MCP_EXPOSED_TOOLS", () => {

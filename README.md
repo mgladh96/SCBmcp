@@ -78,7 +78,7 @@ Hjälpsidor (certifikat krävs):
 | `PORT` | nej | Cloud Run-port. Vinner över `MCP_PORT`. |
 | `MCP_AUTH_TOKEN` | rekommenderas | Delad hemlighet för `/mcp`, `/sse` och `/messages`. Obligatorisk när bindningen inte är loopback. |
 | `MCP_AUTH_HEADER` | nej | Extra headernamn. Standard `x-mcp-auth` (`X-MCP-Auth`). |
-| `MCP_EXPOSED_TOOLS` | nej | Kommaseparerad verktygslista, eller preset `voice` (`scb_find_company`). Utelämnad = alla verktyg. |
+| `MCP_EXPOSED_TOOLS` | nej | Kommaseparerad verktygslista, eller preset `voice` (`scb_find_company`, `company_website_summary`). Utelämnad = alla verktyg. |
 | `SCB_LIVE_TESTS` | nej | Sätt till `true` endast när du kör live-tester mot SCB |
 | `SCB_METADATA_CACHE_BYPASS` | nej | `true` hoppar över processcachen för kategorier, variabler och kodtabeller |
 | `SCB_CATALOG_PATH` | nej | Sökväg till offline-katalogen. Standard `data/scb-catalog/catalog.json` |

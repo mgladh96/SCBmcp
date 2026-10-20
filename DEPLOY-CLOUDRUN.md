@@ -123,7 +123,7 @@ The image is Node 22 Alpine, multi-stage, and runs as the `node` user. `.dockeri
 
 `--allow-unauthenticated` is intentional: the MCP token is the lock. `--min-instances=0` scales to zero. `--max-instances=3` caps SCB quota. Do not set `PORT`; Cloud Run injects it.
 
-`MCP_EXPOSED_TOOLS=voice` registers only `scb_find_company`. Omit that env var to expose every tool (same as local).
+`MCP_EXPOSED_TOOLS=voice` registers `scb_find_company` and `company_website_summary`. Omit that env var to expose every tool (same as local). `company_website_summary` needs `TAVILY_API_KEY` when the caller does not pass `url`. `OPENAI_API_KEY` is optional; without it the summary is extracted text.
 
 ```bash
 IMAGE=europe-north1-docker.pkg.dev/bizmate-ai-specialist/specialist/scb-foretagsregister-mcp:latest
@@ -187,13 +187,13 @@ In [ElevenLabs → MCP server integrations](https://elevenlabs.io/docs/eleven-ag
 3. **Transport:** Streamable HTTP (`STREAMABLE_HTTP`). Leave the default SSE unset.
 4. **Secret token:** `Bearer <MCP_AUTH_TOKEN>` (the Authorization header value). Or set HTTP header `X-MCP-Auth` to the token and leave the secret empty.
 5. **Tool approval:** **No approval**. In the API that is `approval_policy: "auto_approve_all"`. Use that only because the voice preset is a read-only lookup. If you expose the full tool list, prefer per-tool approval so a broad search cannot run unattended.
-6. Save, confirm the connection lists `scb_find_company`, then attach the integration to the agent.
+6. Save, confirm the connection lists `scb_find_company` and `company_website_summary`, then attach the integration to the agent.
 
 Do not put the token in the URL.
 
 ## Tools to expose to a voice agent
 
-With `MCP_EXPOSED_TOOLS=voice` the agent sees one tool, `scb_find_company`. That is the lookup to expose:
+With `MCP_EXPOSED_TOOLS=voice` the agent sees `scb_find_company` and `company_website_summary`. The company lookup:
 
 | Spoken request | Arguments | What comes back |
 | --- | --- | --- |

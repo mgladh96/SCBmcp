@@ -19,7 +19,7 @@ type LogFields = {
   source?: string;
 };
 
-const SENSITIVE_KEY = /password|passphrase|pfx|private.?key|cert(?:ificate)?|token|secret|authorization/i;
+const SENSITIVE_KEY = /password|passphrase|pfx|private.?key|cert(?:ificate)?|token|secret|authorization|api.?key/i;
 const PERSONNUMMER_LIKE = /^(?:19|20)\d{10}$/;
 
 export function createLogger(level: LogLevel = "info") {

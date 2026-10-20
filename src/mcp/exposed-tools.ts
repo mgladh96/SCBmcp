@@ -16,16 +16,17 @@ export const MCP_TOOL_NAMES = [
   "scb_query",
   "scb_count_then_fetch",
   "scb_find_company",
+  "company_website_summary",
 ] as const;
 
 export type McpToolName = (typeof MCP_TOOL_NAMES)[number];
 
 /**
- * Read-only company lookup for a voice agent.
- * `scb_find_company` searches by name and/or organisation number and returns
- * the company record (that response is the detail lookup).
+ * Read-only tools for a voice agent.
+ * `scb_find_company` searches by name and/or organisation number.
+ * `company_website_summary` reads the official site and returns a short Swedish summary.
  */
-export const VOICE_AGENT_TOOL_NAMES = ["scb_find_company"] as const satisfies readonly McpToolName[];
+export const VOICE_AGENT_TOOL_NAMES = ["scb_find_company", "company_website_summary"] as const satisfies readonly McpToolName[];
 
 const KNOWN_TOOLS = new Set<string>(MCP_TOOL_NAMES);
 

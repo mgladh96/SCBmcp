@@ -51,6 +51,14 @@ export const FIND_COMPANY_DESCRIPTION = `Read-only uppslag av ett företag (juri
 
 Svar: { count, returned, results }. Varje rad har bara organizationNumber, name, city, sizeClass, industry och status. Röstläge rankar hela träffmängden: verksamma först, svenskt säte före utland, större storleksklass, sedan exakt namn eller namn som börjar med sökningen. Inaktiva och utländska företag tas bort om något annat finns kvar. count>2000 → QUERY_TOO_BROAD. count=0 → ingen träff.`;
 
+export const COMPANY_WEBSITE_SUMMARY_DESCRIPTION = `Kort svensk sammanfattning av ett företags officiella webbplats, för att säga vad de gör.
+
+- name krävs. city och organizationNumber hjälper när url saknas.
+- url utelämnad: sök officiell sajt. Hoppa över kataloger (allabolag, hitta, ratsit, LinkedIn, Facebook) och föredra en domän som matchar namnet.
+- Läser startsidan och upp till tre undersidor (tjänster, om oss, kunder, verksamhet).
+
+Svar: { url, summary, services, customerTypes, signals, confidence }. summary är högst cirka 600 tecken. signals är korta fraser som "har webbshop", "rekryterar", "certifieringar". Läs summary högt. Vid fel: ett kort meddelande, ingen HTML.`;
+
 export const SEARCH_COMPANIES_DESCRIPTION = `Hämta juridiska enheter (JE). Räknar först (återanvänder nylig count, ~5 s). Om count=0 hoppas hamta över. Om count>2000: QUERY_TOO_BROAD (paginera inte).
 
 SCB-kostnad: search hämtar hela resultatmängden från SCB (efter 2000-vakten). fields[] och maxRows krymper bara vad agenten ser — de minskar inte hamta-anropet. Räkna först och smalna filter innan search.

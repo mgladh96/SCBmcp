@@ -15,6 +15,7 @@ import {
   searchWorkplacesInputSchema,
   findCompanyInputSchema,
 } from "../scb/schemas.js";
+import { companyWebsiteInputSchema } from "../web/company-website.js";
 import { OPERATORS_VERIFY_NOTE, SCB_OPERATORS } from "../scb/operators.js";
 import {
   countThenFetchPrompt,
@@ -37,6 +38,7 @@ import {
   QUERY_DESCRIPTION,
   SCHEMA_SUMMARY_DESCRIPTION,
   FIND_COMPANY_DESCRIPTION,
+  COMPANY_WEBSITE_SUMMARY_DESCRIPTION,
   SEARCH_COMPANIES_DESCRIPTION,
   SEARCH_WORKPLACES_DESCRIPTION,
 } from "./tool-descriptions.js";
@@ -124,6 +126,16 @@ export function createMcpServer(handlers: ToolHandlers, exposedTools?: readonly 
       inputSchema: findCompanyInputSchema.shape,
     },
     async (args) => handlers.scb_find_company(args),
+  );
+
+  registerTool(
+    "company_website_summary",
+    {
+      title: "Sammanfatta företagets webbplats",
+      description: COMPANY_WEBSITE_SUMMARY_DESCRIPTION,
+      inputSchema: companyWebsiteInputSchema.shape,
+    },
+    async (args) => handlers.company_website_summary(args),
   );
 
   registerTool(

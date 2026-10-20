@@ -14,6 +14,12 @@ import { SCB_OPERATOR_NAMES } from "../scb/operators.js";
 import { toMetadataEnvelope, truncateMetadataItems } from "../scb/payload.js";
 import { projectSearchResults } from "../scb/projection.js";
 import { voiceCompanyPayload } from "./voice-companies.js";
+import {
+  companyWebsiteInputSchema,
+  summarizeCompanyWebsite,
+  WebsiteSummaryError,
+  type WebsiteRuntime,
+} from "../web/company-website.js";
 import { discoverCodes } from "../scb/code-lookup.js";
 import { compileStructuredQuery, countThenFetch } from "../scb/compile/index.js";
 import { compileQueryInputSchema, countThenFetchInputSchema } from "../scb/compile/schema.js";
@@ -185,6 +191,15 @@ function municipalityLabels(client: ScbClient): Map<string, string> | undefined 
   return labels;
 }
 
+function websiteErrorResult(code: string, message: string): ToolResult {
+  const payload = { code, message };
+  return {
+    content: [{ type: "text", text: JSON.stringify(payload) }],
+    structuredContent: payload,
+    isError: true,
+  };
+}
+
 function searchSource(): { provider: string; registry: string } {
   return { provider: SOURCE_PROVIDER, registry: SOURCE_REGISTRY };
 }
@@ -237,7 +252,11 @@ function searchEnvelope(
   return withFilterWarning(payload, objectType, options.filters, extraWarnings);
 }
 
-export function createToolHandlers(client: ScbClient, log = createLogger()) {
+export function createToolHandlers(
+  client: ScbClient,
+  log = createLogger(),
+  options: { website?: WebsiteRuntime } = {},
+) {
   async function runCompanySearch(
     tool: string,
     filters: ScbFilters,
@@ -484,6 +503,32 @@ export function createToolHandlers(client: ScbClient, log = createLogger()) {
         { maxRows: limit },
         { nameQuery: parsed.data.name, limit },
       );
+    },
+
+    async company_website_summary(input: unknown): Promise<ToolResult> {
+      const parsed = companyWebsiteInputSchema.safeParse(input);
+      if (!parsed.success) {
+        return websiteErrorResult("WEBSITE_INVALID_INPUT", "Ange företagsnamnet.");
+      }
+      const started = Date.now();
+      try {
+        const summary = await summarizeCompanyWebsite(parsed.data, options.website ?? {});
+        log.info("MCP tool", {
+          tool: "company_website_summary",
+          durationMs: Date.now() - started,
+          status: 200,
+        });
+        return jsonResult(summary);
+      } catch (error) {
+        const code = error instanceof WebsiteSummaryError ? error.code : "WEBSITE_UNAVAILABLE";
+        const message = error instanceof WebsiteSummaryError ? error.message : "Webbplatsen gick inte att läsa.";
+        log.error("MCP tool failed", {
+          tool: "company_website_summary",
+          durationMs: Date.now() - started,
+          errorCode: code,
+        });
+        return websiteErrorResult(code, message);
+      }
     },
 
     async scb_count_workplaces(input: unknown): Promise<ToolResult> {

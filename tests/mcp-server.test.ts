@@ -99,7 +99,7 @@ describe("MCP server instructions and prompts", () => {
         createTestClient(async () => jsonResponse(200, { Kategorier: [] })),
         createLogger("error"),
       ),
-      ["scb_find_company"],
+      ["scb_find_company", "company_website_summary"],
     );
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: "voice-tools", version: "0.0.0" });
@@ -111,7 +111,7 @@ describe("MCP server instructions and prompts", () => {
       },
     });
     const tools = await client.listTools();
-    expect(tools.tools.map((tool) => tool.name)).toEqual(["scb_find_company"]);
+    expect(tools.tools.map((tool) => tool.name)).toEqual(["scb_find_company", "company_website_summary"]);
     expect(client.getServerCapabilities()?.prompts).toBeUndefined();
     expect(client.getServerCapabilities()?.resources).toBeUndefined();
   });
