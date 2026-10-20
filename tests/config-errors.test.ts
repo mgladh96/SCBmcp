@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { isLoopbackHost, loadConfig, McpConfigError } from "../src/config/env.js";
 import { ScbError } from "../src/domain/errors.js";
 import { mapHttpError, queryTooBroad } from "../src/domain/errors.js";
-import { createScbDispatcher, decodeCertBase64, validateCertConfig } from "../src/scb/auth.js";
+import { clearScbDispatcherCache, createScbDispatcher, decodeCertBase64, validateCertConfig } from "../src/scb/auth.js";
 import { dummyCertPath } from "./helpers.js";
 
 function validScbEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
@@ -224,7 +224,20 @@ describe("certificate config", () => {
       certPassword: "super-secret-password",
     });
     expect(agent).toBeDefined();
-    void agent.close();
+    clearScbDispatcherCache();
+  });
+
+  it("reuses one TLS agent for the same certificate across clients", () => {
+    const config = {
+      apiId: "A9",
+      apiIdHeader: "api-id",
+      certPfx: Buffer.from("shared-pfx-bytes"),
+      certPassword: "pw",
+    };
+    const first = createScbDispatcher(config);
+    const second = createScbDispatcher(config);
+    expect(second).toBe(first);
+    clearScbDispatcherCache();
   });
 });
 
