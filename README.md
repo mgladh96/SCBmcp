@@ -119,7 +119,7 @@ Processen är en HTTP-server. MCP lyssnar med två transporter:
 - SSE (klienter ansluter här): `http://127.0.0.1:3000/sse`
 - Message POST: `http://127.0.0.1:3000/messages?sessionId=...`
 
-Lokal Cursor-konfiguration fortsätter att använda `/sse`. Cloud Run och ElevenLabs bör använda `/mcp` (se `DEPLOY-CLOUDRUN.md`).
+Lokal Cursor-konfiguration fortsätter att använda `/sse`. Vercel är första driftvägen för ElevenLabs (`DEPLOY-VERCEL.md`, `/mcp`). Cloud Run finns kvar i `DEPLOY-CLOUDRUN.md`.
 
 När `MCP_AUTH_TOKEN` är satt krävs den för `/mcp`, `/sse` och `/messages`. Skicka antingen:
 

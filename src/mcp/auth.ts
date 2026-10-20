@@ -45,8 +45,27 @@ function tokenFromHeaderValue(value: string): string | undefined {
 }
 
 export function providedMcpToken(req: IncomingMessage, authHeader = MCP_AUTH_HEADER): string | undefined {
-  const header = req.headers.authorization;
-  const fromAuthorization = tokenFromAuthorization(typeof header === "string" ? header : undefined);
+  return credentialFromHeaders(
+    {
+      get(name: string) {
+        const value = req.headers[name.toLowerCase()];
+        if (typeof value === "string") {
+          return value;
+        }
+        if (Array.isArray(value)) {
+          return value[0] ?? null;
+        }
+        return null;
+      },
+    },
+    authHeader,
+  );
+}
+
+type HeaderLookup = { get(name: string): string | null };
+
+function credentialFromHeaders(headers: HeaderLookup, authHeader: string): string | undefined {
+  const fromAuthorization = tokenFromAuthorization(headers.get("authorization") ?? undefined);
   if (fromAuthorization) {
     return fromAuthorization;
   }
@@ -54,17 +73,27 @@ export function providedMcpToken(req: IncomingMessage, authHeader = MCP_AUTH_HEA
   if (!headerName || headerName === "authorization") {
     return undefined;
   }
-  const custom = req.headers[headerName];
-  if (typeof custom === "string") {
-    return tokenFromHeaderValue(custom);
+  const custom = headers.get(headerName);
+  if (!custom) {
+    return undefined;
   }
-  if (Array.isArray(custom)) {
-    const first = custom[0];
-    if (typeof first === "string") {
-      return tokenFromHeaderValue(first);
-    }
+  return tokenFromHeaderValue(custom);
+}
+
+/** Same rules as the Node HTTP server, for Web `Request` headers (Vercel). */
+export function isWebRequestAuthorized(
+  headers: HeaderLookup,
+  authToken: string | undefined,
+  authHeader = MCP_AUTH_HEADER,
+): boolean {
+  if (!authToken) {
+    return true;
   }
-  return undefined;
+  const provided = credentialFromHeaders(headers, authHeader);
+  if (!provided) {
+    return false;
+  }
+  return mcpTokensEqual(provided, authToken);
 }
 
 export function mcpTokensEqual(provided: string, expected: string): boolean {
@@ -82,12 +111,20 @@ export function isMcpRequestAuthorized(
   authToken: string | undefined,
   authHeader = MCP_AUTH_HEADER,
 ): boolean {
-  if (!authToken) {
-    return true;
-  }
-  const provided = providedMcpToken(req, authHeader);
-  if (!provided) {
-    return false;
-  }
-  return mcpTokensEqual(provided, authToken);
+  return isWebRequestAuthorized(
+    {
+      get(name: string) {
+        const value = req.headers[name.toLowerCase()];
+        if (typeof value === "string") {
+          return value;
+        }
+        if (Array.isArray(value)) {
+          return value[0] ?? null;
+        }
+        return null;
+      },
+    },
+    authToken,
+    authHeader,
+  );
 }

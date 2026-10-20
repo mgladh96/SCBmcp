@@ -1,5 +1,7 @@
 # Deploy the SCB MCP server on Cloud Run
 
+Vercel is the first deployment. Use [DEPLOY-VERCEL.md](DEPLOY-VERCEL.md) until you move here.
+
 This deploys the server so an ElevenLabs Conversational AI agent can call it as a remote MCP server. Do not commit certificates, passwords, or tokens. The image does not contain them.
 
 Local `pnpm dev` is unchanged: it still binds `127.0.0.1` and `MCP_PORT` (default 3000) and still reads `SCB_CERT_PATH`.

@@ -1,6 +1,7 @@
 node_modules
 dist
 .env
+.vercel
 *.pfx
 *.p12
 coverage

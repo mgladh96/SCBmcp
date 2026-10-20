@@ -4,7 +4,7 @@
   "description": "MCP server for SCB Allmänna företagsregister (JE/AE).",
   "type": "module",
   "engines": {
-    "node": ">=22"
+    "node": "22.x"
   },
   "bin": {
     "scb-foretagsregister-mcp": "./dist/index.js"
