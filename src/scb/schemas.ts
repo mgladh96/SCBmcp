@@ -112,8 +112,10 @@ export const searchCompaniesInputSchema = z.object({
   maxRows: searchProjectionSchema.shape.maxRows,
 });
 
-/** Default row cap for the voice lookup tool. Search still counts before fetch. */
-export const FIND_COMPANY_DEFAULT_MAX_ROWS = 5;
+/** Voice lookup speaks at most this many ranked companies. SCB still returns the full set. */
+export const FIND_COMPANY_MAX_ROWS = 3;
+/** Default row cap for the voice lookup tool. */
+export const FIND_COMPANY_DEFAULT_MAX_ROWS = FIND_COMPANY_MAX_ROWS;
 
 export const findCompanyInputSchema = z.object({
   name: z
@@ -136,10 +138,10 @@ export const findCompanyInputSchema = z.object({
     .number()
     .int()
     .min(1)
-    .max(MAX_SEARCH_MAX_ROWS)
+    .max(FIND_COMPANY_MAX_ROWS)
     .optional()
     .describe(
-      `Max rader i svaret. Utelämnad = ${FIND_COMPANY_DEFAULT_MAX_ROWS}. Högst ${MAX_SEARCH_MAX_ROWS}. SCB hämtar fortfarande hela mängden efter 2000-vakten.`,
+      `Max rader i röstsvaret. Utelämnad = ${FIND_COMPANY_DEFAULT_MAX_ROWS}, högst ${FIND_COMPANY_MAX_ROWS}. SCB hämtar fortfarande hela träffmängden; svaret rankas och klipps efteråt.`,
     ),
 });
 

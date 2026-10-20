@@ -174,7 +174,7 @@ SCB-klientcertifikatet autentiserar den här processen **mot SCB**. En separat d
 | `scb_get_category_values` | Kodtabell för en SCB-kategori. Valfri `query` + `limit` (standard ~50). Svar: `{ total, returned, items }`. Full dump bara med `includeAll` eller `limit=0`. |
 | `scb_list_variables` | Variabler för kontot. Valfri `includeValueMetadata`. Svar: `{ items, raw }`. |
 | `scb_count_companies` | Räkna JE-träffar |
-| `scb_find_company` | Röst-/uppslagsverktyg: namn och/eller organisationsnummer. Svaret är företagsposten (detaljerna). `maxRows` standard 5. |
+| `scb_find_company` | Röst-/uppslagsverktyg: namn och/eller organisationsnummer. Högst 3 rankade träffar (verksam, svenskt säte, större storleksklass, namn). |
 | `scb_search_companies` | Hämta JE-träffar (räknar först; avvisar > 2 000; hoppar `hamta` vid count 0). Valfritt `fields[]` + `maxRows` (standard 75). |
 | `scb_count_workplaces` | Räkna AE-träffar |
 | `scb_search_workplaces` | Hämta AE-träffar (samma count-regler och projektion som JE) |

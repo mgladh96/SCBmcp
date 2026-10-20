@@ -13,6 +13,7 @@ import {
 import { SCB_OPERATOR_NAMES } from "../scb/operators.js";
 import { toMetadataEnvelope, truncateMetadataItems } from "../scb/payload.js";
 import { projectSearchResults } from "../scb/projection.js";
+import { voiceCompanyPayload } from "./voice-companies.js";
 import { discoverCodes } from "../scb/code-lookup.js";
 import { compileStructuredQuery, countThenFetch } from "../scb/compile/index.js";
 import { compileQueryInputSchema, countThenFetchInputSchema } from "../scb/compile/schema.js";
@@ -168,6 +169,22 @@ function voiceErrorResult(error: unknown): ToolResult {
   };
 }
 
+function municipalityLabels(client: ScbClient): Map<string, string> | undefined {
+  const rows = client.offlineCodeRows("company", "Säteskommun");
+  if (!rows || rows.length === 0) {
+    return undefined;
+  }
+  const labels = new Map<string, string>();
+  for (const row of rows) {
+    labels.set(row.code, row.label);
+    const stripped = row.code.replace(/^0+/u, "");
+    if (stripped) {
+      labels.set(stripped, row.label);
+    }
+  }
+  return labels;
+}
+
 function searchSource(): { provider: string; registry: string } {
   return { provider: SOURCE_PROVIDER, registry: SOURCE_REGISTRY };
 }
@@ -225,7 +242,7 @@ export function createToolHandlers(client: ScbClient, log = createLogger()) {
     tool: string,
     filters: ScbFilters,
     projection: { fields?: string[] | undefined; maxRows?: number | undefined },
-    voice = false,
+    voice?: { nameQuery?: string | undefined; limit?: number | undefined },
   ): Promise<ToolResult> {
     const prepared = preparedFilters("company", filters);
     if (prepared.error) {
@@ -247,6 +264,16 @@ export function createToolHandlers(client: ScbClient, log = createLogger()) {
         count,
         ...(countFromCache ? { cacheHit: true } : {}),
       });
+      if (voice) {
+        return jsonResult(
+          voiceCompanyPayload(results, {
+            count,
+            nameQuery: voice.nameQuery,
+            limit: voice.limit ?? projection.maxRows,
+            municipalityLabels: municipalityLabels(client),
+          }),
+        );
+      }
       return jsonResult(
         searchEnvelope("company", {
           count,
@@ -450,11 +477,12 @@ export function createToolHandlers(client: ScbClient, log = createLogger()) {
           value: parsed.data.organizationNumber,
         });
       }
+      const limit = parsed.data.maxRows ?? FIND_COMPANY_DEFAULT_MAX_ROWS;
       return runCompanySearch(
         "scb_find_company",
         { categories: [], variables },
-        { maxRows: parsed.data.maxRows ?? FIND_COMPANY_DEFAULT_MAX_ROWS },
-        true,
+        { maxRows: limit },
+        { nameQuery: parsed.data.name, limit },
       );
     },
 

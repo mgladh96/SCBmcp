@@ -197,7 +197,7 @@ With `MCP_EXPOSED_TOOLS=voice` the agent sees one tool, `scb_find_company`. That
 
 | Spoken request | Arguments | What comes back |
 | --- | --- | --- |
-| Search by name | `{ "name": "Volvo" }` | Matching companies (SCB variable `Namn` contains the text). Default 5 rows. |
+| Search by name | `{ "name": "Volvo" }` | Up to 3 ranked companies (active, Swedish seat, larger size, then name). |
 | Company details | `{ "organizationNumber": "5560747569" }` | The company record for that org.nr. Same tool, exact match. There is no separate get-details call. |
 | Both | `{ "name": "Volvo", "organizationNumber": "5560747569" }` | AND of the two filters. |
 

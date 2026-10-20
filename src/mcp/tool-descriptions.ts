@@ -47,9 +47,9 @@ export const FIND_COMPANY_DESCRIPTION = `Read-only uppslag av ett företag (juri
 - name: del av företagsnamn (variabel Namn på /api/je/koptavariabler, operator Innehaller). Svarets kolumn heter Företagsnamn.
 - organizationNumber: exakt org.nr, 10 eller 12 siffror (OrgNr (10 siffror), ArLikaMed). 10-siffrigt personnummer-likt värde avvisas.
 - Ange minst ett fält. Båda tillsammans är AND.
-- maxRows utelämnad = 5.
+- maxRows utelämnad = 3, högst 3.
 
-Svar: { count, returned, results, filters }. results innehåller namn, orgnr, status, säte, storleksklass, bransch och Reklam. count>2000 → QUERY_TOO_BROAD (gör namnet mer specifikt eller använd org.nr). count=0 → ingen träff. Ingen paginering, ingen historik.`;
+Svar: { count, returned, results }. Varje rad har bara organizationNumber, name, city, sizeClass, industry och status. Röstläge rankar hela träffmängden: verksamma först, svenskt säte före utland, större storleksklass, sedan exakt namn eller namn som börjar med sökningen. Inaktiva och utländska företag tas bort om något annat finns kvar. count>2000 → QUERY_TOO_BROAD. count=0 → ingen träff.`;
 
 export const SEARCH_COMPANIES_DESCRIPTION = `Hämta juridiska enheter (JE). Räknar först (återanvänder nylig count, ~5 s). Om count=0 hoppas hamta över. Om count>2000: QUERY_TOO_BROAD (paginera inte).
 

@@ -122,15 +122,105 @@ describe("scb_find_company", () => {
       organizationNumber: "5560747569",
     });
     expect(result.isError).toBeUndefined();
-    const payload = JSON.parse(result.content[0]?.text ?? "{}") as { maxRows: number; count: number };
+    const payload = JSON.parse(result.content[0]?.text ?? "{}") as {
+      count: number;
+      returned: number;
+      results: Array<{ organizationNumber?: string; name?: string; status?: string }>;
+    };
     expect(payload.count).toBe(1);
-    expect(payload.maxRows).toBe(5);
+    expect(payload.returned).toBe(1);
+    expect(payload.results).toEqual([
+      { organizationNumber: "5560747569", name: "Testbolaget AB" },
+    ]);
     expect(bodies[0]).toMatchObject({
       variabler: [
         { Variabel: "Namn", Operator: "Innehaller", Varde1: "Testbolaget" },
         { Variabel: "OrgNr (10 siffror)", Operator: "ArLikaMed", Varde1: "5560747569" },
       ],
     });
+  });
+
+  it("ranks IKEA hits and returns at most three compact voice rows", async () => {
+    const handlers = createToolHandlers(
+      createTestClient(async (url) => {
+        if (url.includes("hamtaforetag")) {
+          return jsonResponse(200, [
+            {
+              Företagsnamn: "IKEA GmbH",
+              OrgNr: "5560000001",
+              Säteskommun: "Utlandet",
+              Företagsstatus: "9",
+              Storleksklass: "0 anställda",
+              Bransch: "46900",
+              "Bransch, text": "Partihandel",
+            },
+            {
+              Företagsnamn: "IKEA of Sweden AB",
+              OrgNr: "5560747569",
+              Säteskommun: "Älmhult",
+              Säteslän: "Kronobergs län",
+              Företagsstatus: "1",
+              Storleksklass: "5000-9999 anställda",
+              Bransch: "47191",
+              "Bransch, text": "Specialiserad butikshandel med möbler",
+            },
+            {
+              Företagsnamn: "IKEA AB",
+              OrgNr: "5560743089",
+              Säteskommun: "Älmhult",
+              Företagsstatus: "verksam",
+              Storleksklass: "1000-1499 anställda",
+              Bransch: "47191",
+              "Bransch, text": "Specialiserad butikshandel med möbler",
+            },
+            {
+              Företagsnamn: "Något IKEA Café AB",
+              OrgNr: "5560743090",
+              Säteskommun: "Helsingborg",
+              Företagsstatus: "1",
+              "Stkl, kod": "2",
+              Bransch: "56100",
+            },
+            {
+              Företagsnamn: "IKEA Retail AB",
+              OrgNr: "5560743091",
+              Säteskommun: "0180",
+              Företagsstatus: "1",
+              Storleksklass: "200-499 anställda",
+            },
+          ]);
+        }
+        return jsonResponse(200, 57);
+      }),
+      silent,
+    );
+    const result = await handlers.scb_find_company({ name: "IKEA" });
+    const payload = JSON.parse(result.content[0]?.text ?? "{}") as {
+      count: number;
+      returned: number;
+      note?: string;
+      results: Array<{ name?: string; city?: string; sizeClass?: string; industry?: string; status?: string }>;
+    };
+    expect(payload.count).toBe(57);
+    expect(payload.returned).toBe(3);
+    expect(payload.note).toBe("Visar verksamma företag med säte i Sverige.");
+    expect(payload.results.map((row) => row.name)).toEqual([
+      "IKEA of Sweden AB",
+      "IKEA AB",
+      "IKEA Retail AB",
+    ]);
+    expect(payload.results[0]).toEqual({
+      organizationNumber: "5560747569",
+      name: "IKEA of Sweden AB",
+      city: "Älmhult",
+      sizeClass: "5000-9999 anställda",
+      industry: "47191 Specialiserad butikshandel med möbler",
+      status: "verksam",
+    });
+    expect(payload.results[2]?.city).toBeUndefined();
+    expect(payload.results.every((row) => row.status === "verksam")).toBe(true);
+    expect(JSON.stringify(payload.results)).not.toContain("Utlandet");
+    expect(JSON.stringify(payload.results)).not.toContain("Reklam");
   });
 
   it("filters IKEA on Namn even when the catalog also lists Företagsnamn", async () => {
