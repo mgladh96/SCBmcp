@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { AppConfig } from "../config/env.js";
 import { fold } from "../domain/catalog.js";
 
 export const WEBSITE_PAGE_TIMEOUT_MS = 4_000;
@@ -66,6 +67,16 @@ export type WebsiteRuntime = {
   pageTimeoutMs?: number;
   budgetMs?: number;
 };
+
+/** Keys loaded by `loadConfig` from `TAVILY_API_KEY` and `OPENAI_API_KEY`. */
+export function websiteRuntimeFromConfig(
+  config: Pick<AppConfig, "tavilyApiKey" | "openAiApiKey">,
+): WebsiteRuntime {
+  return {
+    ...(config.tavilyApiKey ? { tavilyApiKey: config.tavilyApiKey } : {}),
+    ...(config.openAiApiKey ? { openAiApiKey: config.openAiApiKey } : {}),
+  };
+}
 
 type Page = { url: string; html: string; text: string };
 

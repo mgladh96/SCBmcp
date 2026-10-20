@@ -6,6 +6,7 @@ import { createLogger } from "../src/log.js";
 import { createSseHttpServer } from "../src/mcp/http.js";
 import { createMcpServer, createToolHandlers } from "../src/mcp/server.js";
 import { ScbClient } from "../src/scb/client.js";
+import { websiteRuntimeFromConfig } from "../src/web/company-website.js";
 
 async function main(): Promise<void> {
   loadEnvFiles();
@@ -22,7 +23,7 @@ async function main(): Promise<void> {
     logLevel: "error",
   });
   const httpServer = createSseHttpServer({
-    createMcpServer: () => createMcpServer(createToolHandlers(scb, log)),
+    createMcpServer: () => createMcpServer(createToolHandlers(scb, log, { website: websiteRuntimeFromConfig(config) })),
     log,
     ...(config.authToken ? { authToken: config.authToken } : {}),
   });

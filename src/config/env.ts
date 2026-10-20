@@ -33,6 +33,8 @@ export type AppConfig = {
   authToken?: string;
   authHeader: string;
   exposedTools?: readonly string[];
+  tavilyApiKey?: string;
+  openAiApiKey?: string;
 };
 
 export class McpConfigError extends Error {
@@ -165,6 +167,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new McpConfigError(exposed.error);
   }
   const authHeader = resolveAuthHeader(env.MCP_AUTH_HEADER);
+  const tavilyApiKey = optionalEnvString(env.TAVILY_API_KEY);
+  const openAiApiKey = optionalEnvString(env.OPENAI_API_KEY);
   return {
     baseUrl: parsed.data.SCB_BASE_URL.replace(/\/+$/, ""),
     apiId: parsed.data.SCB_API_ID,
@@ -177,6 +181,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     ...certificate,
     ...(authToken ? { authToken } : {}),
     ...(exposed.tools ? { exposedTools: exposed.tools } : {}),
+    ...(tavilyApiKey ? { tavilyApiKey } : {}),
+    ...(openAiApiKey ? { openAiApiKey } : {}),
   };
 }
 

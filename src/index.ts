@@ -5,6 +5,7 @@ import { createLogger } from "./log.js";
 import { createSseHttpServer } from "./mcp/http.js";
 import { createMcpServer, createToolHandlers } from "./mcp/server.js";
 import { ScbClient } from "./scb/client.js";
+import { websiteRuntimeFromConfig } from "./web/company-website.js";
 
 async function main(): Promise<void> {
   loadEnvFiles();
@@ -35,7 +36,7 @@ async function main(): Promise<void> {
       );
     }
   }
-  const handlers = createToolHandlers(client, log);
+  const handlers = createToolHandlers(client, log, { website: websiteRuntimeFromConfig(config) });
   const httpServer = createSseHttpServer({
     createMcpServer: () =>
       config.exposedTools ? createMcpServer(handlers, config.exposedTools) : createMcpServer(handlers),

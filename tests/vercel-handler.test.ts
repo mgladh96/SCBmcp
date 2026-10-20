@@ -154,4 +154,74 @@ describe("Vercel streamable HTTP handler", () => {
     const body = (await response.json()) as { result?: { tools?: Array<{ name: string }> } };
     expect(body.result?.tools?.map((tool) => tool.name)).toEqual(["scb_find_company", "company_website_summary"]);
   });
+
+  it("passes TAVILY_API_KEY and OPENAI_API_KEY from the request env into the website tool", async () => {
+    const calls: Array<{ url: string; authorization: string | null }> = [];
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (input, init) => {
+      const url = String(input);
+      const authorization = new Headers(init?.headers).get("authorization");
+      calls.push({ url, authorization });
+      if (url.includes("api.tavily.com")) {
+        return Response.json({ results: [{ url: "https://www.ikea.com/se/sv/" }] });
+      }
+      if (url.includes("www.ikea.com")) {
+        return new Response(
+          "<p>Vi säljer möbler och heminredning till privatpersoner och företag i Sverige, med bas i Älmhult.</p>",
+          { status: 200, headers: { "Content-Type": "text/html" } },
+        );
+      }
+      if (url.includes("api.openai.com")) {
+        return Response.json({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  summary: "De säljer möbler till hem i Sverige.",
+                  services: ["Kök"],
+                  customerTypes: ["Privatpersoner"],
+                  signals: ["har webbshop"],
+                  confidence: "high",
+                }),
+              },
+            },
+          ],
+        });
+      }
+      throw new Error(`unexpected fetch ${url}`);
+    }) as typeof fetch;
+
+    try {
+      const response = await handleVercelMcpRequest(
+        mcpRequest("/mcp", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+            Accept: "application/json, text/event-stream",
+            "mcp-protocol-version": "2025-03-26",
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 3,
+            method: "tools/call",
+            params: { name: "company_website_summary", arguments: { name: "IKEA" } },
+          }),
+        }),
+        vercelEnv({ TAVILY_API_KEY: "tvly-from-env", OPENAI_API_KEY: "sk-from-env" }),
+      );
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as {
+        result?: { isError?: boolean; content?: Array<{ text?: string }> };
+      };
+      expect(body.result?.isError).toBeFalsy();
+      const payload = JSON.parse(body.result?.content?.[0]?.text ?? "{}") as { summary?: string; code?: string };
+      expect(payload.code).toBeUndefined();
+      expect(payload.summary).toBe("De säljer möbler till hem i Sverige.");
+      expect(calls.find((call) => call.url.includes("api.tavily.com"))?.authorization).toBe("Bearer tvly-from-env");
+      expect(calls.find((call) => call.url.includes("api.openai.com"))?.authorization).toBe("Bearer sk-from-env");
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
 });

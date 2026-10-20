@@ -137,6 +137,28 @@ describe("env validation", () => {
       McpConfigError,
     );
   });
+
+  it("loads website search keys from the environment", () => {
+    const config = loadConfig(
+      validScbEnv({
+        TAVILY_API_KEY: " tvly-from-env ",
+        OPENAI_API_KEY: " sk-from-env ",
+      }),
+    );
+    expect(config.tavilyApiKey).toBe("tvly-from-env");
+    expect(config.openAiApiKey).toBe("sk-from-env");
+  });
+
+  it("treats blank website search keys as unset", () => {
+    const config = loadConfig(
+      validScbEnv({
+        TAVILY_API_KEY: "   ",
+        OPENAI_API_KEY: "",
+      }),
+    );
+    expect(config.tavilyApiKey).toBeUndefined();
+    expect(config.openAiApiKey).toBeUndefined();
+  });
 });
 
 describe("loopback bind detection", () => {

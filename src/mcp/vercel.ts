@@ -10,6 +10,7 @@ import { ScbClient } from "../scb/client.js";
 import { isWebRequestAuthorized } from "./auth.js";
 import { MCP_PATH } from "./http.js";
 import { createMcpServer, createToolHandlers } from "./server.js";
+import { websiteRuntimeFromConfig } from "../web/company-website.js";
 
 export const VERCEL_FUNCTION_MAX_DURATION_SECONDS = 60;
 
@@ -142,7 +143,9 @@ export async function handleVercelMcpRequest(
     return methodNotAllowed();
   }
 
-  const handlers = createToolHandlers(runtime.client, createLogger(runtime.config.logLevel));
+  const handlers = createToolHandlers(runtime.client, createLogger(runtime.config.logLevel), {
+    website: websiteRuntimeFromConfig(runtime.config),
+  });
   const mcp = runtime.config.exposedTools
     ? createMcpServer(handlers, runtime.config.exposedTools)
     : createMcpServer(handlers);
