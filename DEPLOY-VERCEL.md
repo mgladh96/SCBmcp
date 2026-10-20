@@ -102,6 +102,14 @@ curl -sS -X POST "$BASE/mcp" \
 
 A raw `Authorization: $TOKEN` header (no `Bearer` prefix) is also accepted. That is the ElevenLabs secret-token field when you do not type the word Bearer yourself.
 
+To check the three website lookups against production, without printing the token:
+
+```bash
+MCP_AUTH_TOKEN="$TOKEN" pnpm website:debug
+```
+
+The script calls `company_website_summary` for EAG Entreprenad / Brunflo, Peab / Förslöv, and Treeab Bygg / Östersund, and prints only the tool results. Pass `Name|City` arguments to try other companies. `MCP_URL` overrides the default `https://scb-mcp.vercel.app/mcp`.
+
 ## 5. ElevenLabs
 
 MCP must be enabled for the workspace (the first custom MCP server asks you to accept the terms). Zero Retention Mode and HIPAA workspaces cannot use MCP.
@@ -131,12 +139,12 @@ Do not put the token in the URL.
 | What does the company do? | `{ "name": "IKEA", "city": "Älmhult" }` |
 | User already named a site | `{ "name": "IKEA", "url": "https://www.ikea.com/se/sv/" }` |
 
-The tool searches with Tavily when `url` is missing, skips directory sites, and reads the homepage plus up to three internal pages. The spoken field is `summary` (about 600 characters). Without `OPENAI_API_KEY` it uses sentences taken from the pages.
+The tool searches with Tavily when `url` is missing, skips directory sites, and reads the homepage plus up to three internal pages. Tavily has its own 6 second timeout and one retry on a 5xx response. The whole website lookup has a 12 second budget. The spoken field is `summary` (about 600 characters). Without `OPENAI_API_KEY` it uses sentences taken from the pages. Failures are logged with a `reason` and no API key.
 
 ## Limits
 
 - **Timeout.** This function sets `maxDuration` to **60 seconds** (`api/mcp.ts` and `vercel.json`). The platform default is 300 seconds on every plan, including Hobby. Hobby cannot go past 300 seconds. Pro and Enterprise can raise a function to 800 seconds (1800 seconds only in the extended-duration beta). Sixty seconds is enough for an SCB lookup and lines up with ElevenLabs’ tool timeout (their default is 30 seconds, maximum 300).
 - **Cold starts.** Fluid Compute reuses a warm instance across requests, including `/health` and `/mcp`, so a health check can keep the process warm. After idle, the next request still pays a cold start: Node boot, the MCP SDK, and decoding the pfx. There is no minimum-instance setting like Cloud Run.
 - **Body size.** Request and response bodies are capped at **4.5 MB**. MCP JSON is far smaller.
-- **Region.** Pinned to `arn1`. The function does not run in the US unless you change `vercel.json`.
+- **Region.** `vercel.json` sets `"regions": ["arn1"]`, and the function executes there. `x-vercel-id` looks like `iad1::arn1::…`: the first segment is the edge that accepted the request, the second is the function region. A client in the US shows `iad1` first while the function still runs in Stockholm.
 - **SSE.** Do not point ElevenLabs at an SSE URL on Vercel. The handler returns JSON and answers `GET /mcp` with 405 so the invocation ends.

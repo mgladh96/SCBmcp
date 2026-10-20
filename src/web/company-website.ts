@@ -3,7 +3,8 @@ import type { AppConfig } from "../config/env.js";
 import { fold } from "../domain/catalog.js";
 
 export const WEBSITE_PAGE_TIMEOUT_MS = 4_000;
-export const WEBSITE_BUDGET_MS = 8_000;
+export const WEBSITE_TAVILY_TIMEOUT_MS = 6_000;
+export const WEBSITE_BUDGET_MS = 12_000;
 export const WEBSITE_SUMMARY_MAX_CHARS = 600;
 
 const DIRECTORY_HOSTS = [
@@ -27,7 +28,7 @@ const DIRECTORY_HOSTS = [
   "kompass.se",
 ];
 const PAGE_HINTS = ["tjanster", "tjanst", "services", "service", "omoss", "about", "kunder", "customers", "verksamhet", "erbjudanden"];
-const LEGAL_SUFFIX = /(aktiebolag|handelsbolag|kommanditbolag|ab|hb|kb)$/u;
+const LEGAL_TOKENS = new Set(["ab", "hb", "kb", "aktiebolag", "handelsbolag", "kommanditbolag"]);
 const STOP_TOKENS = new Set(["och", "the", "for", "sweden", "sverige", "entreprenad"]);
 const TITLE_CHECK_LIMIT = 3;
 const CUSTOMER_TYPES: Array<{ pattern: RegExp; label: string }> = [
@@ -72,11 +73,13 @@ export type CompanyWebsiteSummary = {
 
 export class WebsiteSummaryError extends Error {
   readonly code: string;
+  readonly reason: string;
 
-  constructor(code: string, message: string) {
+  constructor(code: string, message: string, reason = code) {
     super(message);
     this.name = "WebsiteSummaryError";
     this.code = code;
+    this.reason = reason;
   }
 }
 
@@ -86,6 +89,7 @@ export type WebsiteRuntime = {
   openAiApiKey?: string;
   now?: () => number;
   pageTimeoutMs?: number;
+  tavilyTimeoutMs?: number;
   budgetMs?: number;
 };
 
@@ -119,22 +123,30 @@ export async function summarizeCompanyWebsite(
   const fetchImpl = runtime.fetchImpl ?? fetch;
   const now = runtime.now ?? Date.now;
   const pageTimeoutMs = runtime.pageTimeoutMs ?? WEBSITE_PAGE_TIMEOUT_MS;
+  const tavilyTimeoutMs = runtime.tavilyTimeoutMs ?? WEBSITE_TAVILY_TIMEOUT_MS;
   const budgetMs = runtime.budgetMs ?? WEBSITE_BUDGET_MS;
   const started = now();
   const remaining = (): number => Math.max(0, budgetMs - (now() - started));
-  const resolved = await resolveOfficialSite(input, runtime.tavilyApiKey, fetchImpl, remaining, pageTimeoutMs);
+  const resolved = await resolveOfficialSite(
+    input,
+    runtime.tavilyApiKey,
+    fetchImpl,
+    remaining,
+    pageTimeoutMs,
+    tavilyTimeoutMs,
+  );
   const home = resolved.page;
   const links = pickInternalLinks(home.html, new URL(home.url), input.name, input.city).slice(0, 3);
   const extras = await Promise.all(
     links.map((link) => fetchPage(link, fetchImpl, Math.min(pageTimeoutMs, remaining()), input.name, input.city)),
   );
-  const pages = [home, ...extras.filter((page): page is Page => page !== null)];
+  const pages = [home, ...extras.flatMap((fetched) => (fetched.page ? [fetched.page] : []))];
   const text = pages.map((page) => page.text).join("\n");
   const extracted = extractWebsiteFacts(text, input.city);
   extracted.summary = capSummary(composeSummary(pages, resolved.notes, input.name, input.city) || extracted.summary);
   const readable = `${text} ${extracted.summary}`;
   if (fold(readable).length < 40) {
-    throw new WebsiteSummaryError("WEBSITE_UNAVAILABLE", "Webbplatsen gick inte att läsa.");
+    throw new WebsiteSummaryError("WEBSITE_UNAVAILABLE", "Webbplatsen gick inte att läsa.", "page_unreadable");
   }
   const nameMatched = siteMatchesName(home, input.name, input.city);
   const heuristic = toSummary(home.url, extracted, confidenceFor(nameMatched, text.length, pages.length, extracted.summary.length));
@@ -161,19 +173,24 @@ async function resolveOfficialSite(
   fetchImpl: typeof fetch,
   remaining: () => number,
   pageTimeoutMs: number,
+  tavilyTimeoutMs: number,
 ): Promise<{ page: Page; notes?: SearchNotes }> {
   if (input.url?.trim()) {
     const official = normalizeOfficialUrl(input.url, input.name, input.city);
-    const page = await fetchPage(official.href, fetchImpl, Math.min(pageTimeoutMs, remaining()), input.name, input.city);
-    if (!page) {
-      throw new WebsiteSummaryError("WEBSITE_UNAVAILABLE", "Webbplatsen svarade inte.");
+    const fetched = await fetchPage(official.href, fetchImpl, Math.min(pageTimeoutMs, remaining()), input.name, input.city);
+    if (!fetched.page) {
+      throw new WebsiteSummaryError("WEBSITE_UNAVAILABLE", "Webbplatsen svarade inte.", fetched.reason);
     }
-    if (!siteMatchesName(page, input.name, input.city)) {
-      throw new WebsiteSummaryError("WEBSITE_NOT_FOUND", "Jag hittade ingen officiell webbplats.");
+    if (!siteMatchesName(fetched.page, input.name, input.city)) {
+      throw new WebsiteSummaryError(
+        "WEBSITE_NOT_FOUND",
+        "Jag hittade ingen officiell webbplats.",
+        `name_mismatch host=${hostKey(new URL(fetched.page.url))}`,
+      );
     }
-    return { page };
+    return { page: fetched.page };
   }
-  return searchOfficialSite(input, apiKey, fetchImpl, remaining, pageTimeoutMs);
+  return searchOfficialSite(input, apiKey, fetchImpl, remaining, pageTimeoutMs, tavilyTimeoutMs);
 }
 
 async function searchOfficialSite(
@@ -182,38 +199,13 @@ async function searchOfficialSite(
   fetchImpl: typeof fetch,
   remaining: () => number,
   pageTimeoutMs: number,
+  tavilyTimeoutMs: number,
 ): Promise<{ page: Page; notes: SearchNotes }> {
   if (!apiKey) {
-    throw new WebsiteSummaryError("WEBSITE_NOT_CONFIGURED", "Webbsök är inte aktiverat.");
-  }
-  const timeoutMs = Math.min(pageTimeoutMs, remaining());
-  if (timeoutMs < 200) {
-    throw new WebsiteSummaryError("WEBSITE_UNAVAILABLE", "Jag kunde inte söka efter webbplatsen.");
+    throw new WebsiteSummaryError("WEBSITE_NOT_CONFIGURED", "Webbsök är inte aktiverat.", "tavily_not_configured");
   }
   const query = [input.name, input.city, input.organizationNumber, "officiell webbplats"].filter(Boolean).join(" ");
-  let response: Response;
-  try {
-    response = await fetchImpl("https://api.tavily.com/search", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        query,
-        search_depth: "basic",
-        max_results: 8,
-        include_answer: true,
-        exclude_domains: DIRECTORY_HOSTS,
-      }),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-  } catch {
-    throw new WebsiteSummaryError("WEBSITE_UNAVAILABLE", "Jag kunde inte söka efter webbplatsen.");
-  }
-  if (!response.ok) {
-    throw new WebsiteSummaryError("WEBSITE_UNAVAILABLE", "Jag kunde inte söka efter webbplatsen.");
-  }
+  const response = await fetchTavily(apiKey, query, fetchImpl, remaining, tavilyTimeoutMs);
   const payload = (await response.json()) as {
     answer?: unknown;
     results?: Array<{ url?: string; title?: string; content?: string }>;
@@ -232,23 +224,84 @@ async function searchOfficialSite(
   const answer = typeof payload.answer === "string" && payload.answer.trim() ? payload.answer.trim() : undefined;
   const picked = pickBestCandidate(hits.map((hit) => hit.url), input.name, input.city);
   if (picked) {
-    const page = await fetchPage(picked.href, fetchImpl, Math.min(pageTimeoutMs, remaining()), input.name, input.city);
-    if (!page) {
-      throw new WebsiteSummaryError("WEBSITE_UNAVAILABLE", "Webbplatsen svarade inte.");
+    const fetched = await fetchPage(picked.href, fetchImpl, Math.min(pageTimeoutMs, remaining()), input.name, input.city);
+    if (!fetched.page) {
+      throw new WebsiteSummaryError("WEBSITE_UNAVAILABLE", "Webbplatsen svarade inte.", fetched.reason);
     }
-    if (!siteMatchesName(page, input.name, input.city)) {
-      throw new WebsiteSummaryError("WEBSITE_NOT_FOUND", "Jag hittade ingen officiell webbplats.");
+    if (!siteMatchesName(fetched.page, input.name, input.city)) {
+      throw new WebsiteSummaryError(
+        "WEBSITE_NOT_FOUND",
+        "Jag hittade ingen officiell webbplats.",
+        `name_mismatch host=${hostKey(new URL(fetched.page.url))}`,
+      );
     }
-    return { page, notes: notesFor(answer, hits, page) };
+    return { page: fetched.page, notes: notesFor(answer, hits, fetched.page) };
   }
   for (const hit of hits.slice(0, TITLE_CHECK_LIMIT)) {
-    const page = await fetchPage(hit.url.href, fetchImpl, Math.min(pageTimeoutMs, remaining()), input.name, input.city);
-    if (!page || !siteMatchesName(page, input.name, input.city)) {
+    const fetched = await fetchPage(hit.url.href, fetchImpl, Math.min(pageTimeoutMs, remaining()), input.name, input.city);
+    if (!fetched.page || !siteMatchesName(fetched.page, input.name, input.city)) {
       continue;
     }
-    return { page, notes: notesFor(answer, hits, page) };
+    return { page: fetched.page, notes: notesFor(answer, hits, fetched.page) };
   }
-  throw new WebsiteSummaryError("WEBSITE_NOT_FOUND", "Jag hittade ingen officiell webbplats.");
+  throw new WebsiteSummaryError("WEBSITE_NOT_FOUND", "Jag hittade ingen officiell webbplats.", noMatchReason(hits));
+}
+
+async function fetchTavily(
+  apiKey: string,
+  query: string,
+  fetchImpl: typeof fetch,
+  remaining: () => number,
+  tavilyTimeoutMs: number,
+): Promise<Response> {
+  let failure = "tavily_http_500";
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const timeoutMs = Math.min(tavilyTimeoutMs, remaining());
+    if (timeoutMs < 200) {
+      throw new WebsiteSummaryError("WEBSITE_UNAVAILABLE", "Jag kunde inte söka efter webbplatsen.", "tavily_budget");
+    }
+    try {
+      const response = await fetchImpl("https://api.tavily.com/search", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          query,
+          search_depth: "basic",
+          max_results: 8,
+          include_answer: true,
+          exclude_domains: DIRECTORY_HOSTS,
+        }),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (response.ok) {
+        return response;
+      }
+      failure = `tavily_http_${response.status}`;
+      await response.body?.cancel().catch(() => undefined);
+      if (response.status < 500 || attempt === 1) {
+        throw new WebsiteSummaryError("WEBSITE_UNAVAILABLE", "Jag kunde inte söka efter webbplatsen.", failure);
+      }
+    } catch (error) {
+      if (error instanceof WebsiteSummaryError) {
+        throw error;
+      }
+      const reason = isTimeout(error) ? "tavily_timeout" : "tavily_network";
+      throw new WebsiteSummaryError("WEBSITE_UNAVAILABLE", "Jag kunde inte söka efter webbplatsen.", reason);
+    }
+  }
+  throw new WebsiteSummaryError("WEBSITE_UNAVAILABLE", "Jag kunde inte söka efter webbplatsen.", failure);
+}
+
+function noMatchReason(hits: SearchHit[]): string {
+  const hosts = unique(hits.map((hit) => hostKey(hit.url))).slice(0, 8);
+  return hosts.length > 0 ? `no_name_match hosts=${hosts.join(",")}` : "no_name_match";
+}
+
+function isTimeout(error: unknown): boolean {
+  return error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
 }
 
 function notesFor(answer: string | undefined, hits: SearchHit[], page: Page): SearchNotes {
@@ -266,11 +319,16 @@ function notesFor(answer: string | undefined, hits: SearchHit[], page: Page): Se
 
 function normalizeOfficialUrl(raw: string, name?: string, city?: string): URL {
   const url = safeUrl(raw.includes("://") ? raw : `https://${raw}`);
-  if (!url || isBlockedAddress(url) || isDirectoryUrl(url, name, city)) {
-    throw new WebsiteSummaryError("WEBSITE_INVALID_URL", "Jag kan inte hämta den adressen.");
+  if (!url || isBlockedAddress(url)) {
+    throw new WebsiteSummaryError("WEBSITE_INVALID_URL", "Jag kan inte hämta den adressen.", "blocked_address");
+  }
+  if (isDirectoryUrl(url, name, city)) {
+    throw new WebsiteSummaryError("WEBSITE_INVALID_URL", "Jag kan inte hämta den adressen.", "directory_url");
   }
   return url;
 }
+
+const IGNORED_LABELS = new Set(["www", "co", "com", "se", "nu", "net", "org", "io", "uk", "de", "no", "dk", "fi", "eu"]);
 
 export function pickBestCandidate(candidates: URL[], name: string, city?: string): URL | undefined {
   let best: { url: URL; score: number } | undefined;
@@ -282,25 +340,40 @@ export function pickBestCandidate(candidates: URL[], name: string, city?: string
     if (score <= 0) {
       continue;
     }
-    if (!best || score > best.score) {
+    if (!best || score > best.score || (score === best.score && preferSwedishHost(url, best.url))) {
       best = { url, score };
     }
   }
   return best?.url;
 }
 
+function preferSwedishHost(url: URL, current: URL): boolean {
+  return url.hostname.toLowerCase().endsWith(".se") && !current.hostname.toLowerCase().endsWith(".se");
+}
+
 function domainScore(hostname: string, name: string, city?: string): number {
-  const host = fold(hostname.replace(/^www\./u, ""));
-  const tokens = nameTokens(name, city);
-  if (tokens.length === 0 || !tokens.every((token) => host.includes(token))) {
+  const token = nameTokens(name, city)[0];
+  if (!token) {
     return 0;
   }
-  const whole = tokens.join("");
-  if (whole.length >= 4 && host.includes(whole)) {
-    return 100;
+  let score = 0;
+  for (const label of hostLabels(hostname)) {
+    if (label === token) {
+      score = Math.max(score, 100);
+    } else if (label.startsWith(token)) {
+      score = Math.max(score, 80);
+    }
   }
-  const longest = Math.max(...tokens.map((token) => token.length));
-  return longest >= 4 ? 80 : 40;
+  return score;
+}
+
+function hostLabels(hostname: string): string[] {
+  return hostname
+    .toLowerCase()
+    .replace(/\.$/u, "")
+    .split(".")
+    .map((label) => fold(label))
+    .filter((label) => label.length >= 2 && !IGNORED_LABELS.has(label));
 }
 
 function hostMatchesName(hostname: string, name: string, city?: string): boolean {
@@ -316,8 +389,8 @@ function nameTokens(name: string, city?: string): string[] {
   source = source.replace(/\bi\s+\p{Lu}[\p{L}\p{M}'’-]*$/u, " ");
   return source
     .split(/[^0-9A-Za-zÅÄÖåäö]+/u)
-    .map((part) => fold(part).replace(LEGAL_SUFFIX, ""))
-    .filter((part) => part.length >= 3 && !STOP_TOKENS.has(part));
+    .map((part) => fold(part))
+    .filter((part) => part.length >= 3 && !STOP_TOKENS.has(part) && !LEGAL_TOKENS.has(part));
 }
 
 function siteMatchesName(page: Page, name: string, city?: string): boolean {
@@ -332,15 +405,13 @@ function siteMatchesName(page: Page, name: string, city?: string): boolean {
 }
 
 function pageMentionsName(html: string, name: string, city?: string): boolean {
-  const tokens = nameTokens(name, city);
-  if (tokens.length === 0) {
+  const token = nameTokens(name, city)[0];
+  if (!token) {
     return false;
   }
   const title = fold(metaOrTitle(html));
   const h1 = fold(headingTexts(html, "h1").join(" "));
-  const inTitle = tokens.every((token) => title.includes(token));
-  const inH1 = tokens.every((token) => h1.includes(token));
-  return inTitle || inH1;
+  return title.includes(token) || h1.includes(token);
 }
 
 function isDirectoryHost(url: URL): boolean {
@@ -389,10 +460,16 @@ async function fetchPage(
   timeoutMs: number,
   name?: string,
   city?: string,
-): Promise<Page | null> {
+): Promise<{ page: Page | null; reason: string }> {
   const url = safeUrl(raw);
-  if (!url || isBlockedAddress(url) || isDirectoryUrl(url, name, city) || timeoutMs < 200) {
-    return null;
+  if (!url || isBlockedAddress(url)) {
+    return { page: null, reason: "page_blocked" };
+  }
+  if (isDirectoryUrl(url, name, city)) {
+    return { page: null, reason: `page_directory host=${hostKey(url)}` };
+  }
+  if (timeoutMs < 200) {
+    return { page: null, reason: "page_budget" };
   }
   try {
     const response = await fetchImpl(url.href, {
@@ -401,16 +478,20 @@ async function fetchPage(
       signal: AbortSignal.timeout(timeoutMs),
     });
     if (!response.ok) {
-      return null;
+      return { page: null, reason: `page_http_${response.status} host=${hostKey(url)}` };
     }
     const finalUrl = safeUrl(response.url || url.href) ?? url;
-    if (isBlockedAddress(finalUrl) || isDirectoryUrl(finalUrl, name, city)) {
-      return null;
+    if (isBlockedAddress(finalUrl)) {
+      return { page: null, reason: "page_blocked" };
+    }
+    if (isDirectoryUrl(finalUrl, name, city)) {
+      return { page: null, reason: `page_directory host=${hostKey(finalUrl)}` };
     }
     const html = (await response.text()).slice(0, 500_000);
-    return { url: finalUrl.href, html, text: pageText(html) };
-  } catch {
-    return null;
+    return { page: { url: finalUrl.href, html, text: pageText(html) }, reason: "ok" };
+  } catch (error) {
+    const reason = isTimeout(error) ? "page_timeout" : "page_network";
+    return { page: null, reason: `${reason} host=${hostKey(url)}` };
   }
 }
 

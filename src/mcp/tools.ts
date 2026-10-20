@@ -522,10 +522,12 @@ export function createToolHandlers(
       } catch (error) {
         const code = error instanceof WebsiteSummaryError ? error.code : "WEBSITE_UNAVAILABLE";
         const message = error instanceof WebsiteSummaryError ? error.message : "Webbplatsen gick inte att läsa.";
+        const reason = error instanceof WebsiteSummaryError ? error.reason : "unexpected";
         log.error("MCP tool failed", {
           tool: "company_website_summary",
           durationMs: Date.now() - started,
           errorCode: code,
+          reason,
         });
         return websiteErrorResult(code, message);
       }

@@ -17,6 +17,7 @@ type LogFields = {
   cacheHit?: boolean;
   queryStatus?: string;
   source?: string;
+  reason?: string;
 };
 
 const SENSITIVE_KEY = /password|passphrase|pfx|private.?key|cert(?:ificate)?|token|secret|authorization|api.?key/i;

@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { createLogger } from "../src/log.js";
 import { createToolHandlers } from "../src/mcp/tools.js";
-import { summarizeCompanyWebsite } from "../src/web/company-website.js";
+import {
+  pickBestCandidate,
+  summarizeCompanyWebsite,
+  WEBSITE_BUDGET_MS,
+  WEBSITE_PAGE_TIMEOUT_MS,
+  WEBSITE_TAVILY_TIMEOUT_MS,
+} from "../src/web/company-website.js";
 import { createTestClient, jsonResponse } from "./helpers.js";
 
 const silent = createLogger("error");
@@ -389,5 +395,149 @@ describe("company_website_summary", () => {
     expect(summary.summary.toLowerCase()).toContain("markarbeten");
     expect(summary.summary.toLowerCase()).not.toContain("henric");
     expect(summary.signals).toEqual([]);
+  });
+
+  it("keeps a 6 second Tavily timeout and a 12 second budget", () => {
+    expect(WEBSITE_TAVILY_TIMEOUT_MS).toBe(6_000);
+    expect(WEBSITE_BUDGET_MS).toBe(12_000);
+    expect(WEBSITE_PAGE_TIMEOUT_MS).toBe(4_000);
+  });
+
+  it("accepts peab.se and treeab.se from the main name token", () => {
+    expect(pickBestCandidate([
+      new URL("https://example.com/nyheter/peab"),
+      new URL("https://www.peab.com/"),
+      new URL("https://www.peab.se/"),
+    ], "Peab", "Förslöv")?.href).toBe("https://www.peab.se/");
+    expect(pickBestCandidate([new URL("https://peabgroup.se/")], "Peab")?.hostname).toBe("peabgroup.se");
+    expect(pickBestCandidate([new URL("https://notpeab.se/")], "Peab")).toBeUndefined();
+    expect(pickBestCandidate([
+      new URL("https://bygg.se/"),
+      new URL("https://www.treeab.se/"),
+    ], "Treeab Bygg", "Östersund")?.href).toBe("https://www.treeab.se/");
+  });
+
+  it("fetches peab.se when search also returns peab.com", async () => {
+    const fetched: string[] = [];
+    const fetchImpl: typeof fetch = async (input) => {
+      const url = String(input);
+      fetched.push(url);
+      if (url.includes("api.tavily.com")) {
+        return jsonResponse(200, {
+          results: [
+            { url: "https://www.peab.com/" },
+            { url: "https://www.peab.se/" },
+          ],
+        });
+      }
+      return new Response(
+        "<title>Peab</title><h1>Peab</h1><p>Peab bygger och anlägger åt företag och kommuner i Sverige, med bas i Förslöv.</p>",
+        { status: 200, headers: { "Content-Type": "text/html" } },
+      );
+    };
+    const summary = await summarizeCompanyWebsite(
+      { name: "Peab", city: "Förslöv" },
+      { fetchImpl, tavilyApiKey: "tavily-test" },
+    );
+    expect(summary.url).toBe("https://www.peab.se/");
+    expect(fetched).toEqual(["https://api.tavily.com/search", "https://www.peab.se/"]);
+  });
+
+  it("retries a Tavily 5xx once and does not retry a 4xx", async () => {
+    let serverErrors = 0;
+    const retryFetch: typeof fetch = async (input) => {
+      const url = String(input);
+      if (url.includes("api.tavily.com")) {
+        serverErrors += 1;
+        if (serverErrors === 1) {
+          return new Response("unavailable", { status: 503 });
+        }
+        return jsonResponse(200, { results: [{ url: "https://www.treeab.se/" }] });
+      }
+      return new Response(
+        "<title>Treeab</title><h1>Treeab</h1><p>Treeab bygger bostäder och lokaler åt företag och kommuner i Östersund.</p>",
+        { status: 200, headers: { "Content-Type": "text/html" } },
+      );
+    };
+    const summary = await summarizeCompanyWebsite(
+      { name: "Treeab Bygg", city: "Östersund" },
+      { fetchImpl: retryFetch, tavilyApiKey: "tavily-test" },
+    );
+    expect(serverErrors).toBe(2);
+    expect(summary.url).toBe("https://www.treeab.se/");
+
+    let clientErrors = 0;
+    const clientErrorFetch: typeof fetch = async () => {
+      clientErrors += 1;
+      return new Response("bad", { status: 400 });
+    };
+    await expect(
+      summarizeCompanyWebsite({ name: "Peab" }, { fetchImpl: clientErrorFetch, tavilyApiKey: "tavily-test" }),
+    ).rejects.toMatchObject({ reason: "tavily_http_400" });
+    expect(clientErrors).toBe(1);
+  });
+
+  it("aborts Tavily on its own timeout and logs the reason without the key", async () => {
+    const fetchImpl: typeof fetch = (_input, init) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          const error = new Error("aborted");
+          error.name = "TimeoutError";
+          reject(error);
+        });
+      });
+    const started = Date.now();
+    await expect(
+      summarizeCompanyWebsite(
+        { name: "Treeab Bygg", city: "Östersund" },
+        { fetchImpl, tavilyApiKey: "tavily-test", tavilyTimeoutMs: 250, pageTimeoutMs: 4_000, budgetMs: 12_000 },
+      ),
+    ).rejects.toMatchObject({
+      code: "WEBSITE_UNAVAILABLE",
+      message: "Jag kunde inte söka efter webbplatsen.",
+      reason: "tavily_timeout",
+    });
+    const elapsed = Date.now() - started;
+    expect(elapsed).toBeGreaterThan(150);
+    expect(elapsed).toBeLessThan(1_000);
+
+    const lines: string[] = [];
+    const original = process.stderr.write;
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      lines.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      const result = await createToolHandlers(createTestClient(async () => jsonResponse(200, [])), silent, {
+        website: {
+          fetchImpl: async () => new Response("down", { status: 503 }),
+          tavilyApiKey: "tvly-secret-value",
+        },
+      }).company_website_summary({ name: "Peab", city: "Förslöv" });
+      expect(JSON.parse(result.content[0]?.text ?? "{}")).toEqual({
+        code: "WEBSITE_UNAVAILABLE",
+        message: "Jag kunde inte söka efter webbplatsen.",
+      });
+    } finally {
+      process.stderr.write = original;
+    }
+    const logged = lines.join("");
+    expect(logged).toContain("tavily_http_503");
+    expect(logged).not.toContain("tvly-secret-value");
+  });
+
+  it("records the host when the chosen site does not answer", async () => {
+    const fetchImpl: typeof fetch = async (input) => {
+      if (String(input).includes("api.tavily.com")) {
+        return jsonResponse(200, { results: [{ url: "https://www.peab.se/" }] });
+      }
+      return new Response("no", { status: 503 });
+    };
+    await expect(
+      summarizeCompanyWebsite({ name: "Peab", city: "Förslöv" }, { fetchImpl, tavilyApiKey: "tavily-test" }),
+    ).rejects.toMatchObject({
+      name: "WebsiteSummaryError",
+      reason: "page_http_503 host=peab.se",
+    });
   });
 });
