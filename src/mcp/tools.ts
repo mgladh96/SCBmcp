@@ -1,10 +1,15 @@
 import { DEFAULT_CATEGORY_VALUES_LIMIT, filterHintsFor } from "../domain/catalog.js";
-import { ScbError } from "../domain/errors.js";
+import { ScbError, type ScbErrorCode } from "../domain/errors.js";
 import { collectQueryWarnings, UNBOUNDED_QUERY_WARNING } from "../domain/query-warnings.js";
 import { createLogger } from "../log.js";
 import type { ScbClient } from "../scb/client.js";
 import { explainQuery } from "../scb/explain.js";
-import { identityInvalidErrorDetails, LIVE_JE_ORGNR_10, normalizeIdentityInFilters } from "../scb/identity.js";
+import {
+  identityInvalidErrorDetails,
+  LIVE_JE_ORGNR_10,
+  normalizeIdentityInFilters,
+  resolveJeNameVariable,
+} from "../scb/identity.js";
 import { SCB_OPERATOR_NAMES } from "../scb/operators.js";
 import { toMetadataEnvelope, truncateMetadataItems } from "../scb/payload.js";
 import { projectSearchResults } from "../scb/projection.js";
@@ -136,6 +141,33 @@ function identityErrorResult(message: string): ToolResult {
   );
 }
 
+const VOICE_ERROR_MESSAGE: Partial<Record<ScbErrorCode, string>> = {
+  SCB_INVALID_QUERY: "Ange företagsnamn eller organisationsnummer.",
+  SCB_UNKNOWN_VARIABLE: "Namnsökningen gick inte igenom. Prova organisationsnummer.",
+  SCB_UNKNOWN_CATEGORY: "Sökningen gick inte igenom. Prova organisationsnummer.",
+  QUERY_TOO_BROAD: "För många träffar. Säg ett tydligare namn eller organisationsnumret.",
+  SCB_NO_MATCHES: "Inget företag hittades.",
+  SCB_RATE_LIMITED: "Registret är upptaget. Försök igen om en stund.",
+  SCB_AUTH_ERROR: "Kunde inte nå företagsregistret.",
+  SCB_UNAVAILABLE: "Företagsregistret svarar inte just nu.",
+  SCB_RESPONSE_VALIDATION_ERROR: "Svaret från registret gick inte att läsa.",
+};
+
+/** Short spoken line for the voice lookup. No SCB body, nearestNames, or tool lists. */
+function voiceErrorResult(error: unknown): ToolResult {
+  const code: ScbErrorCode = error instanceof ScbError ? error.code : "SCB_UNAVAILABLE";
+  let message = VOICE_ERROR_MESSAGE[code] ?? "Sökningen misslyckades. Försök igen.";
+  if (error instanceof ScbError && error.code === "SCB_INVALID_QUERY" && error.details.origin === "identity") {
+    message = "Organisationsnumret ser fel ut. Säg tio eller tolv siffror.";
+  }
+  const payload = { code, message };
+  return {
+    content: [{ type: "text", text: JSON.stringify(payload) }],
+    structuredContent: payload,
+    isError: true,
+  };
+}
+
 function searchSource(): { provider: string; registry: string } {
   return { provider: SOURCE_PROVIDER, registry: SOURCE_REGISTRY };
 }
@@ -193,10 +225,15 @@ export function createToolHandlers(client: ScbClient, log = createLogger()) {
     tool: string,
     filters: ScbFilters,
     projection: { fields?: string[] | undefined; maxRows?: number | undefined },
+    voice = false,
   ): Promise<ToolResult> {
     const prepared = preparedFilters("company", filters);
     if (prepared.error) {
-      return identityErrorResult(prepared.error);
+      return voice
+        ? voiceErrorResult(
+            new ScbError("SCB_INVALID_QUERY", prepared.error, false, { origin: "identity" }),
+          )
+        : identityErrorResult(prepared.error);
     }
     const started = Date.now();
     try {
@@ -224,7 +261,7 @@ export function createToolHandlers(client: ScbClient, log = createLogger()) {
       );
     } catch (error) {
       logToolError(tool, started, error);
-      return errorResult(error);
+      return voice ? voiceErrorResult(error) : errorResult(error);
     }
   }
 
@@ -388,22 +425,20 @@ export function createToolHandlers(client: ScbClient, log = createLogger()) {
     async scb_find_company(input: unknown): Promise<ToolResult> {
       const parsed = findCompanyInputSchema.safeParse(input);
       if (!parsed.success) {
-        return errorResult(invalidInput("scb_find_company", parsed.error));
+        return voiceErrorResult(invalidInput("scb_find_company", parsed.error));
       }
       if (!parsed.data.name && !parsed.data.organizationNumber) {
-        return errorResult(
-          new ScbError(
-            "SCB_INVALID_QUERY",
-            "Ange name och/eller organizationNumber.",
-            false,
-            { origin: "mcp_input", field: "name" },
-          ),
+        return voiceErrorResult(
+          new ScbError("SCB_INVALID_QUERY", "Ange name och/eller organizationNumber.", false, {
+            origin: "mcp_input",
+            field: "name",
+          }),
         );
       }
       const variables: ScbFilters["variables"] = [];
       if (parsed.data.name) {
         variables.push({
-          variable: "Företagsnamn",
+          variable: resolveJeNameVariable(client.offlineVariableNames("company")),
           operator: "Innehaller",
           value: parsed.data.name,
         });
@@ -419,6 +454,7 @@ export function createToolHandlers(client: ScbClient, log = createLogger()) {
         "scb_find_company",
         { categories: [], variables },
         { maxRows: parsed.data.maxRows ?? FIND_COMPANY_DEFAULT_MAX_ROWS },
+        true,
       );
     },
 

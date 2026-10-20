@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createLogger } from "../src/log.js";
 import { createToolHandlers } from "../src/mcp/tools.js";
 import { ScbError } from "../src/domain/errors.js";
+import { buildCatalogArtifact } from "../src/scb/offline-catalog.js";
 import { MAX_RESULTS } from "../src/scb/types.js";
 import { createTestClient, jsonResponse } from "./helpers.js";
 
@@ -93,6 +94,16 @@ describe("MCP JE vs AE tools", () => {
   });
 });
 
+function nameCatalog(variableNames: string[]) {
+  return buildCatalogArtifact({
+    source: "fixture",
+    layouts: {
+      company: { categoryNames: ["Företagsstatus"], variableNames, tables: [] },
+      workplace: { categoryNames: [], variableNames: [], tables: [] },
+    },
+  });
+}
+
 describe("scb_find_company", () => {
   it("searches by name and organisation number and caps rows for a voice agent", async () => {
     const bodies: unknown[] = [];
@@ -116,16 +127,104 @@ describe("scb_find_company", () => {
     expect(payload.maxRows).toBe(5);
     expect(bodies[0]).toMatchObject({
       variabler: [
-        { Variabel: "Företagsnamn", Operator: "Innehaller", Varde1: "Testbolaget" },
+        { Variabel: "Namn", Operator: "Innehaller", Varde1: "Testbolaget" },
         { Variabel: "OrgNr (10 siffror)", Operator: "ArLikaMed", Varde1: "5560747569" },
       ],
     });
+  });
+
+  it("filters IKEA on Namn even when the catalog also lists Företagsnamn", async () => {
+    const bodies: unknown[] = [];
+    const handlers = createToolHandlers(
+      createTestClient(
+        async (url, init) => {
+          if (url.includes("hamtaforetag")) {
+            bodies.push(JSON.parse(init.body ?? "{}"));
+            return jsonResponse(200, [{ Företagsnamn: "IKEA of Sweden AB", OrgNr: "5560747569" }]);
+          }
+          return jsonResponse(200, 1);
+        },
+        {
+          offlineCatalog: nameCatalog(["Företagsnamn", "Namn", "OrgNr (10 siffror)"]),
+        },
+      ),
+      silent,
+    );
+    const result = await handlers.scb_find_company({ name: "IKEA" });
+    expect(result.isError).toBeUndefined();
+    const variabler = (bodies[0] as { variabler: Array<{ Variabel: string }> }).variabler;
+    expect(variabler).toEqual([{ Variabel: "Namn", Operator: "Innehaller", Varde1: "IKEA", Varde2: "" }]);
+    expect(variabler.map((item) => item.Variabel)).not.toContain("Företagsnamn");
+  });
+
+  it("does not send Företagsnamn when that is the only catalog name", async () => {
+    const bodies: unknown[] = [];
+    const handlers = createToolHandlers(
+      createTestClient(
+        async (url, init) => {
+          if (url.includes("hamtaforetag")) {
+            bodies.push(JSON.parse(init.body ?? "{}"));
+            return jsonResponse(200, []);
+          }
+          return jsonResponse(200, 1);
+        },
+        { offlineCatalog: nameCatalog(["Företagsnamn"]) },
+      ),
+      silent,
+    );
+    await handlers.scb_find_company({ name: "IKEA" });
+    expect((bodies[0] as { variabler: Array<{ Variabel: string }> }).variabler[0]?.Variabel).toBe("Namn");
+  });
+
+  it("uses Firma when the purchased list has Firma and not Namn", async () => {
+    const bodies: unknown[] = [];
+    const handlers = createToolHandlers(
+      createTestClient(
+        async (url, init) => {
+          if (url.includes("hamtaforetag")) {
+            bodies.push(JSON.parse(init.body ?? "{}"));
+            return jsonResponse(200, []);
+          }
+          return jsonResponse(200, 1);
+        },
+        { offlineCatalog: nameCatalog(["Firma", "OrgNr (10 siffror)"]) },
+      ),
+      silent,
+    );
+    await handlers.scb_find_company({ name: "IKEA" });
+    expect((bodies[0] as { variabler: Array<{ Variabel: string }> }).variabler[0]?.Variabel).toBe("Firma");
+  });
+
+  it("returns a short voice error when SCB rejects the variable", async () => {
+    const handlers = createToolHandlers(
+      createTestClient(async () =>
+        jsonResponse(400, {
+          message: "Variabeln Företagsnamn kan inte hittas",
+          nearestNames: ["Namn", "Firma", "OrgNr (10 siffror)"],
+        }),
+      ),
+      silent,
+    );
+    const result = await handlers.scb_find_company({ name: "IKEA" });
+    expect(result.isError).toBe(true);
+    const payload = JSON.parse(result.content[0]?.text ?? "{}") as Record<string, unknown>;
+    expect(payload).toEqual({
+      code: "SCB_UNKNOWN_VARIABLE",
+      message: "Namnsökningen gick inte igenom. Prova organisationsnummer.",
+    });
+    expect(result.content[0]?.text.length).toBeLessThan(120);
+    expect(payload).not.toHaveProperty("details");
+    expect(payload).not.toHaveProperty("nearestNames");
   });
 
   it("requires a name or an organisation number", async () => {
     const handlers = createToolHandlers(createTestClient(async () => jsonResponse(200, 0)), silent);
     const result = await handlers.scb_find_company({});
     expect(result.isError).toBe(true);
+    const payload = JSON.parse(result.content[0]?.text ?? "{}") as { code: string; message: string };
+    expect(payload.code).toBe("SCB_INVALID_QUERY");
+    expect(payload.message).toBe("Ange företagsnamn eller organisationsnummer.");
+    expect(payload).not.toHaveProperty("details");
   });
 });
 

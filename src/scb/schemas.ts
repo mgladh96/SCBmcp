@@ -122,7 +122,7 @@ export const findCompanyInputSchema = z.object({
     .min(1)
     .optional()
     .describe(
-      "Del av företagsnamn. Söks med Innehaller mot SCB-variabeln Företagsnamn. Ange name och/eller organizationNumber.",
+      "Del av företagsnamn. Söks med Innehaller mot SCB-variabeln Namn (koptavariabler). Företagsnamn är kolumnen i svaret, inte filtret. Ange name och/eller organizationNumber.",
     ),
   organizationNumber: z
     .string()

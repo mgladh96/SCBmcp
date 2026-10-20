@@ -44,7 +44,7 @@ Anti-mönster: "Bygg" i namn ≠ SNI; operatorer som Contains; AnstSME vs Storle
 
 export const FIND_COMPANY_DESCRIPTION = `Read-only uppslag av ett företag (juridisk enhet, JE) på namn och/eller organisationsnummer. Svaret är företagsposten — det finns inget separat "hämta detaljer".
 
-- name: del av företagsnamn (Företagsnamn, operator Innehaller).
+- name: del av företagsnamn (variabel Namn på /api/je/koptavariabler, operator Innehaller). Svarets kolumn heter Företagsnamn.
 - organizationNumber: exakt org.nr, 10 eller 12 siffror (OrgNr (10 siffror), ArLikaMed). 10-siffrigt personnummer-likt värde avvisas.
 - Ange minst ett fält. Båda tillsammans är AND.
 - maxRows utelämnad = 5.

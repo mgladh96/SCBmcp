@@ -24,6 +24,27 @@ export const PEORGNR_LENGTH = 12;
 export const LIVE_JE_ORGNR_10 = "OrgNr (10 siffror)";
 /** Live JE variable name (Id_Variabel_JE). */
 export const LIVE_JE_ORGNR_12 = "OrgNr (12 siffror)";
+/**
+ * Live JE name filter on koptavariabler (`Id_Variabel_JE`).
+ * `hamta` rows label the same value `Företagsnamn`, and `/api/je/variabler`
+ * can list that column, but rakna/hamta reject it
+ * ("Variabeln Företagsnamn kan inte hittas"). `Firma` is the exampleJe
+ * alternate when `Namn` is not in the purchased list.
+ */
+export const LIVE_JE_NAME = "Namn";
+const JE_NAME_FILTER_CANDIDATES = [LIVE_JE_NAME, "Firma"] as const;
+
+export function resolveJeNameVariable(catalogNames: readonly string[] | undefined): string {
+  if (catalogNames && catalogNames.length > 0) {
+    for (const candidate of JE_NAME_FILTER_CANDIDATES) {
+      const hit = catalogNames.find((name) => fold(name) === fold(candidate));
+      if (hit) {
+        return hit;
+      }
+    }
+  }
+  return LIVE_JE_NAME;
+}
 
 export type IdentityKind = "peOrgNr" | "orgNr10" | "orgNr12" | "cfarNr";
 
