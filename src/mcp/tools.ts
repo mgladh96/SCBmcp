@@ -4,7 +4,7 @@ import { collectQueryWarnings, UNBOUNDED_QUERY_WARNING } from "../domain/query-w
 import { createLogger } from "../log.js";
 import type { ScbClient } from "../scb/client.js";
 import { explainQuery } from "../scb/explain.js";
-import { identityInvalidErrorDetails, normalizeIdentityInFilters } from "../scb/identity.js";
+import { identityInvalidErrorDetails, LIVE_JE_ORGNR_10, normalizeIdentityInFilters } from "../scb/identity.js";
 import { SCB_OPERATOR_NAMES } from "../scb/operators.js";
 import { toMetadataEnvelope, truncateMetadataItems } from "../scb/payload.js";
 import { projectSearchResults } from "../scb/projection.js";
@@ -23,6 +23,8 @@ import {
   schemaSummaryInputSchema,
   searchCompaniesInputSchema,
   searchWorkplacesInputSchema,
+  findCompanyInputSchema,
+  FIND_COMPANY_DEFAULT_MAX_ROWS,
   type ScbFilters,
 } from "../scb/schemas.js";
 import { SOURCE_LABEL, SOURCE_PROVIDER, SOURCE_REGISTRY, type ObjectType } from "../scb/types.js";
@@ -187,6 +189,45 @@ function searchEnvelope(
 }
 
 export function createToolHandlers(client: ScbClient, log = createLogger()) {
+  async function runCompanySearch(
+    tool: string,
+    filters: ScbFilters,
+    projection: { fields?: string[] | undefined; maxRows?: number | undefined },
+  ): Promise<ToolResult> {
+    const prepared = preparedFilters("company", filters);
+    if (prepared.error) {
+      return identityErrorResult(prepared.error);
+    }
+    const started = Date.now();
+    try {
+      const { count, results, skippedFetch, countFromCache } = await client.searchCompanies(
+        prepared.filters,
+      );
+      log.info("MCP tool", {
+        tool,
+        durationMs: Date.now() - started,
+        status: 200,
+        count,
+        ...(countFromCache ? { cacheHit: true } : {}),
+      });
+      return jsonResult(
+        searchEnvelope("company", {
+          count,
+          results,
+          filters: prepared.filters,
+          fields: projection.fields,
+          maxRows: projection.maxRows,
+          skippedFetch,
+          countFromCache,
+          extraWarnings: prepared.warnings,
+        }),
+      );
+    } catch (error) {
+      logToolError(tool, started, error);
+      return errorResult(error);
+    }
+  }
+
   return {
     async scb_list_categories(input: unknown): Promise<ToolResult> {
       const parsed = listCategoriesInputSchema.safeParse(input);
@@ -338,38 +379,47 @@ export function createToolHandlers(client: ScbClient, log = createLogger()) {
       if (!parsed.success) {
         return errorResult(invalidInput("scb_search_companies", parsed.error));
       }
-      const prepared = preparedFilters("company", parsed.data.filters);
-      if (prepared.error) {
-        return identityErrorResult(prepared.error);
+      return runCompanySearch("scb_search_companies", parsed.data.filters, {
+        fields: parsed.data.fields,
+        maxRows: parsed.data.maxRows,
+      });
+    },
+
+    async scb_find_company(input: unknown): Promise<ToolResult> {
+      const parsed = findCompanyInputSchema.safeParse(input);
+      if (!parsed.success) {
+        return errorResult(invalidInput("scb_find_company", parsed.error));
       }
-      const started = Date.now();
-      try {
-        const { count, results, skippedFetch, countFromCache } = await client.searchCompanies(
-          prepared.filters,
+      if (!parsed.data.name && !parsed.data.organizationNumber) {
+        return errorResult(
+          new ScbError(
+            "SCB_INVALID_QUERY",
+            "Ange name och/eller organizationNumber.",
+            false,
+            { origin: "mcp_input", field: "name" },
+          ),
         );
-        log.info("MCP tool", {
-          tool: "scb_search_companies",
-          durationMs: Date.now() - started,
-          status: 200,
-          count,
-          ...(countFromCache ? { cacheHit: true } : {}),
+      }
+      const variables: ScbFilters["variables"] = [];
+      if (parsed.data.name) {
+        variables.push({
+          variable: "Företagsnamn",
+          operator: "Innehaller",
+          value: parsed.data.name,
         });
-        return jsonResult(
-          searchEnvelope("company", {
-            count,
-            results,
-            filters: prepared.filters,
-            fields: parsed.data.fields,
-            maxRows: parsed.data.maxRows,
-            skippedFetch,
-            countFromCache,
-            extraWarnings: prepared.warnings,
-          }),
-        );
-      } catch (error) {
-        logToolError("scb_search_companies", started, error);
-        return errorResult(error);
       }
+      if (parsed.data.organizationNumber) {
+        variables.push({
+          variable: LIVE_JE_ORGNR_10,
+          operator: "ArLikaMed",
+          value: parsed.data.organizationNumber,
+        });
+      }
+      return runCompanySearch(
+        "scb_find_company",
+        { categories: [], variables },
+        { maxRows: parsed.data.maxRows ?? FIND_COMPANY_DEFAULT_MAX_ROWS },
+      );
     },
 
     async scb_count_workplaces(input: unknown): Promise<ToolResult> {

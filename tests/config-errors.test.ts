@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { isLoopbackHost, loadConfig, McpConfigError } from "../src/config/env.js";
 import { ScbError } from "../src/domain/errors.js";
 import { mapHttpError, queryTooBroad } from "../src/domain/errors.js";
-import { validateCertConfig } from "../src/scb/auth.js";
+import { createScbDispatcher, decodeCertBase64, validateCertConfig } from "../src/scb/auth.js";
 import { dummyCertPath } from "./helpers.js";
 
 function validScbEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
@@ -57,6 +57,86 @@ describe("env validation", () => {
     expect(config.host).toBe("0.0.0.0");
     expect(config.authToken).toBe("bind-secret");
   });
+
+  it("listens on PORT and binds 0.0.0.0 when MCP_HOST is unset", () => {
+    const config = loadConfig(
+      validScbEnv({
+        PORT: "8080",
+        MCP_PORT: "3001",
+        MCP_AUTH_TOKEN: "cloud-run-secret",
+      }),
+    );
+    expect(config.port).toBe(8080);
+    expect(config.host).toBe("0.0.0.0");
+  });
+
+  it("keeps MCP_HOST when PORT is set", () => {
+    const config = loadConfig(
+      validScbEnv({
+        PORT: "9090",
+        MCP_HOST: "127.0.0.1",
+      }),
+    );
+    expect(config.port).toBe(9090);
+    expect(config.host).toBe("127.0.0.1");
+    expect(config.authToken).toBeUndefined();
+  });
+
+  it("refuses PORT without MCP_AUTH_TOKEN when that implies a public bind", () => {
+    expect(() => loadConfig(validScbEnv({ PORT: "8080" }))).toThrow(McpConfigError);
+  });
+
+  it("loads a certificate from SCB_CERT_BASE64 when no pfx file exists", () => {
+    const pfx = Buffer.from("fake-pfx-bytes");
+    const config = loadConfig(
+      validScbEnv({
+        SCB_CERT_PATH: "/tmp/scb-missing-certificate.pfx",
+        SCB_CERT_BASE64: pfx.toString("base64"),
+      }),
+    );
+    expect(config.certPfx?.equals(pfx)).toBe(true);
+    expect(config.certPath).toBeUndefined();
+  });
+
+  it("prefers an existing SCB_CERT_PATH over SCB_CERT_BASE64", () => {
+    const path = dummyCertPath();
+    const config = loadConfig(
+      validScbEnv({
+        SCB_CERT_PATH: path,
+        SCB_CERT_BASE64: Buffer.from("other-bytes").toString("base64"),
+      }),
+    );
+    expect(config.certPath).toBe(path);
+    expect(config.certPfx).toBeUndefined();
+  });
+
+  it("rejects invalid SCB_CERT_BASE64 without echoing the secret", () => {
+    const marker = "secret-marker-do-not-leak";
+    try {
+      loadConfig(
+        validScbEnv({
+          SCB_CERT_PATH: undefined,
+          SCB_CERT_BASE64: marker,
+        }),
+      );
+      expect.unreachable();
+    } catch (error) {
+      expect(error).toBeInstanceOf(ScbError);
+      expect(error instanceof Error ? error.message : "").toMatch(/SCB_CERT_BASE64/);
+      expect(JSON.stringify(error)).not.toContain(marker);
+    }
+  });
+
+  it("restricts tools with the voice preset", () => {
+    const config = loadConfig(validScbEnv({ MCP_EXPOSED_TOOLS: "voice" }));
+    expect(config.exposedTools).toEqual(["scb_find_company"]);
+  });
+
+  it("rejects unknown MCP_EXPOSED_TOOLS", () => {
+    expect(() => loadConfig(validScbEnv({ MCP_EXPOSED_TOOLS: "scb_find_company,not_a_tool" }))).toThrow(
+      McpConfigError,
+    );
+  });
 });
 
 describe("loopback bind detection", () => {
@@ -95,6 +175,34 @@ describe("certificate config", () => {
         certPassword: "pw",
       }),
     ).not.toThrow();
+  });
+
+  it("accepts pfx bytes without a file path", () => {
+    expect(() =>
+      validateCertConfig({
+        apiId: "A1",
+        apiIdHeader: "api-id",
+        certPfx: Buffer.from("not-a-real-pfx"),
+        certPassword: "pw",
+      }),
+    ).not.toThrow();
+  });
+
+  it("decodes base64 pfx bytes and ignores whitespace", () => {
+    const pfx = Buffer.from("pfx-bytes");
+    const wrapped = pfx.toString("base64").replace(/(.{4})/g, "$1\n");
+    expect(decodeCertBase64(wrapped).equals(pfx)).toBe(true);
+  });
+
+  it("builds a TLS dispatcher from pfx bytes without a certificate file", () => {
+    const agent = createScbDispatcher({
+      apiId: "A1",
+      apiIdHeader: "api-id",
+      certPfx: Buffer.from("not-a-real-pfx"),
+      certPassword: "super-secret-password",
+    });
+    expect(agent).toBeDefined();
+    void agent.close();
   });
 });
 

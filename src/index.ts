@@ -15,8 +15,9 @@ async function main(): Promise<void> {
     auth: {
       apiId: config.apiId,
       apiIdHeader: config.apiIdHeader,
-      certPath: config.certPath,
       certPassword: config.certPassword,
+      ...(config.certPath ? { certPath: config.certPath } : {}),
+      ...(config.certPfx ? { certPfx: config.certPfx } : {}),
     },
     logLevel: config.logLevel,
   });
@@ -36,8 +37,10 @@ async function main(): Promise<void> {
   }
   const handlers = createToolHandlers(client, log);
   const httpServer = createSseHttpServer({
-    createMcpServer: () => createMcpServer(handlers),
+    createMcpServer: () =>
+      config.exposedTools ? createMcpServer(handlers, config.exposedTools) : createMcpServer(handlers),
     log,
+    authHeader: config.authHeader,
     ...(config.authToken ? { authToken: config.authToken } : {}),
   });
 
@@ -46,9 +49,17 @@ async function main(): Promise<void> {
     httpServer.once("error", reject);
   });
 
+  const shutdown = (): void => {
+    httpServer.close(() => {
+      process.exit(0);
+    });
+  };
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
+
   const url = `http://${config.host}:${config.port}`;
-  log.info("MCP SSE server started", {
-    endpoint: `${url}/sse`,
+  log.info("MCP HTTP server started", {
+    endpoint: `${url}/mcp`,
     host: config.host,
     port: config.port,
     auth: config.authToken ? "required" : "disabled",

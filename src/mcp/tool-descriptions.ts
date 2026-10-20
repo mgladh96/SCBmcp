@@ -42,6 +42,15 @@ Tomma filter = hela populationen (warning). Behåll Reklam i senare sökresultat
 
 Anti-mönster: "Bygg" i namn ≠ SNI; operatorer som Contains; AnstSME vs Storleksklass Anställda.`;
 
+export const FIND_COMPANY_DESCRIPTION = `Read-only uppslag av ett företag (juridisk enhet, JE) på namn och/eller organisationsnummer. Svaret är företagsposten — det finns inget separat "hämta detaljer".
+
+- name: del av företagsnamn (Företagsnamn, operator Innehaller).
+- organizationNumber: exakt org.nr, 10 eller 12 siffror (OrgNr (10 siffror), ArLikaMed). 10-siffrigt personnummer-likt värde avvisas.
+- Ange minst ett fält. Båda tillsammans är AND.
+- maxRows utelämnad = 5.
+
+Svar: { count, returned, results, filters }. results innehåller namn, orgnr, status, säte, storleksklass, bransch och Reklam. count>2000 → QUERY_TOO_BROAD (gör namnet mer specifikt eller använd org.nr). count=0 → ingen träff. Ingen paginering, ingen historik.`;
+
 export const SEARCH_COMPANIES_DESCRIPTION = `Hämta juridiska enheter (JE). Räknar först (återanvänder nylig count, ~5 s). Om count=0 hoppas hamta över. Om count>2000: QUERY_TOO_BROAD (paginera inte).
 
 SCB-kostnad: search hämtar hela resultatmängden från SCB (efter 2000-vakten). fields[] och maxRows krymper bara vad agenten ser — de minskar inte hamta-anropet. Räkna först och smalna filter innan search.

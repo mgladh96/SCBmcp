@@ -13,6 +13,7 @@ import {
   schemaSummaryInputSchema,
   searchCompaniesInputSchema,
   searchWorkplacesInputSchema,
+  findCompanyInputSchema,
 } from "../scb/schemas.js";
 import { OPERATORS_VERIFY_NOTE, SCB_OPERATORS } from "../scb/operators.js";
 import {
@@ -35,6 +36,7 @@ import {
   LOOKUP_CODES_DESCRIPTION,
   QUERY_DESCRIPTION,
   SCHEMA_SUMMARY_DESCRIPTION,
+  FIND_COMPANY_DESCRIPTION,
   SEARCH_COMPANIES_DESCRIPTION,
   SEARCH_WORKPLACES_DESCRIPTION,
 } from "./tool-descriptions.js";
@@ -48,7 +50,7 @@ const objectTypePromptArg = z
   .enum(["company", "workplace"])
   .describe("company = JE (juridisk enhet), workplace = AE (arbetsställe)");
 
-export function createMcpServer(handlers: ToolHandlers): McpServer {
+export function createMcpServer(handlers: ToolHandlers, exposedTools?: readonly string[]): McpServer {
   const server = new McpServer(
     {
       name: SERVER_NAME,
@@ -56,8 +58,15 @@ export function createMcpServer(handlers: ToolHandlers): McpServer {
     },
     { instructions: SERVER_INSTRUCTIONS },
   );
+  const allow = exposedTools ? new Set(exposedTools) : undefined;
+  const registerTool = (name: string, config: object, cb: (args: never) => Promise<unknown>): void => {
+    if (allow && !allow.has(name)) {
+      return;
+    }
+    server.registerTool(name, config as never, cb as never);
+  };
 
-  server.registerTool(
+  registerTool(
     "scb_list_categories",
     {
       title: "Lista SCB-kategorier",
@@ -67,7 +76,7 @@ export function createMcpServer(handlers: ToolHandlers): McpServer {
     async (args) => handlers.scb_list_categories(args),
   );
 
-  server.registerTool(
+  registerTool(
     "scb_get_category_values",
     {
       title: "Hämta SCB-kodtabell",
@@ -77,7 +86,7 @@ export function createMcpServer(handlers: ToolHandlers): McpServer {
     async (args) => handlers.scb_get_category_values(args),
   );
 
-  server.registerTool(
+  registerTool(
     "scb_list_variables",
     {
       title: "Lista SCB-variabler",
@@ -87,7 +96,7 @@ export function createMcpServer(handlers: ToolHandlers): McpServer {
     async (args) => handlers.scb_list_variables(args),
   );
 
-  server.registerTool(
+  registerTool(
     "scb_count_companies",
     {
       title: "Räkna SCB-företag",
@@ -97,7 +106,7 @@ export function createMcpServer(handlers: ToolHandlers): McpServer {
     async (args) => handlers.scb_count_companies(args),
   );
 
-  server.registerTool(
+  registerTool(
     "scb_search_companies",
     {
       title: "Hämta SCB-företag",
@@ -107,7 +116,17 @@ export function createMcpServer(handlers: ToolHandlers): McpServer {
     async (args) => handlers.scb_search_companies(args),
   );
 
-  server.registerTool(
+  registerTool(
+    "scb_find_company",
+    {
+      title: "Sök företag på namn eller org.nr",
+      description: FIND_COMPANY_DESCRIPTION,
+      inputSchema: findCompanyInputSchema.shape,
+    },
+    async (args) => handlers.scb_find_company(args),
+  );
+
+  registerTool(
     "scb_count_workplaces",
     {
       title: "Räkna SCB-arbetsställen",
@@ -117,7 +136,7 @@ export function createMcpServer(handlers: ToolHandlers): McpServer {
     async (args) => handlers.scb_count_workplaces(args),
   );
 
-  server.registerTool(
+  registerTool(
     "scb_search_workplaces",
     {
       title: "Hämta SCB-arbetsställen",
@@ -127,7 +146,7 @@ export function createMcpServer(handlers: ToolHandlers): McpServer {
     async (args) => handlers.scb_search_workplaces(args),
   );
 
-  server.registerTool(
+  registerTool(
     "scb_explain_query",
     {
       title: "Förklara SCB-fråga (dry-run)",
@@ -137,7 +156,7 @@ export function createMcpServer(handlers: ToolHandlers): McpServer {
     async (args) => handlers.scb_explain_query(args),
   );
 
-  server.registerTool(
+  registerTool(
     "scb_schema_summary",
     {
       title: "Kompakt SCB-schemasammanfattning",
@@ -147,7 +166,7 @@ export function createMcpServer(handlers: ToolHandlers): McpServer {
     async (args) => handlers.scb_schema_summary(args),
   );
 
-  server.registerTool(
+  registerTool(
     "scb_lookup_codes",
     {
       title: "Sök SCB-koder",
@@ -157,7 +176,7 @@ export function createMcpServer(handlers: ToolHandlers): McpServer {
     async (args) => handlers.scb_lookup_codes(args),
   );
 
-  server.registerTool(
+  registerTool(
     "scb_discover",
     {
       title: "Sök SCB-koder (alias)",
@@ -167,7 +186,7 @@ export function createMcpServer(handlers: ToolHandlers): McpServer {
     async (args) => handlers.scb_discover(args),
   );
 
-  server.registerTool(
+  registerTool(
     "scb_filter_hints",
     {
       title: "Filtertips per frågeklass",
@@ -177,7 +196,7 @@ export function createMcpServer(handlers: ToolHandlers): McpServer {
     async (args) => handlers.scb_filter_hints(args),
   );
 
-  server.registerTool(
+  registerTool(
     "scb_compile_query",
     {
       title: "Kompilera StructuredQuery till SCB-filter",
@@ -187,7 +206,7 @@ export function createMcpServer(handlers: ToolHandlers): McpServer {
     async (args) => handlers.scb_compile_query(args),
   );
 
-  server.registerTool(
+  registerTool(
     "scb_query",
     {
       title: "StructuredQuery: räkna och hämta",
@@ -197,7 +216,7 @@ export function createMcpServer(handlers: ToolHandlers): McpServer {
     async (args) => handlers.scb_query(args),
   );
 
-  server.registerTool(
+  registerTool(
     "scb_count_then_fetch",
     {
       title: "Kompilera, räkna och hämta (alias för scb_query)",
@@ -206,6 +225,10 @@ export function createMcpServer(handlers: ToolHandlers): McpServer {
     },
     async (args) => handlers.scb_count_then_fetch(args),
   );
+
+  if (allow) {
+    return server;
+  }
 
   server.registerResource(
     "scb-operators",

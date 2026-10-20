@@ -1,0 +1,15 @@
+node_modules
+dist
+.git
+.github
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12
+coverage
+*.log
+.DS_Store
+tests
+scripts
+**/*.md

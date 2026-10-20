@@ -1,5 +1,7 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { AddressInfo } from "node:net";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { createSseHttpServer } from "../src/mcp/http.js";
 import { createMcpServer, createToolHandlers } from "../src/mcp/server.js";
 import { createTestClient, jsonResponse } from "./helpers.js";
@@ -62,6 +64,29 @@ describe("SSE HTTP server", () => {
     expect(response.status).toBe(200);
     expect(body.transport).toBe("sse");
     expect(body.sse).toBe("/sse");
+    const doc = body as { mcp?: string; transports?: string[] };
+    expect(doc.mcp).toBe("/mcp");
+    expect(doc.transports).toEqual(["sse", "streamable-http"]);
+  });
+
+  it("serves stateless streamable HTTP on /mcp", async () => {
+    const base = await listen(httpServer);
+    const transport = new StreamableHTTPClientTransport(new URL(`${base}/mcp`));
+    const client = new Client({ name: "streamable-test", version: "0.0.0" });
+    await client.connect(transport);
+    try {
+      const tools = await client.listTools();
+      expect(tools.tools.some((tool) => tool.name === "scb_find_company")).toBe(true);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("answers GET /mcp with 405 so Cloud Run does not hold an SSE stream", async () => {
+    const base = await listen(httpServer);
+    const response = await fetch(`${base}/mcp`, { headers: { Accept: "text/event-stream" } });
+    expect(response.status).toBe(405);
+    expect(response.headers.get("allow")).toBe("POST");
   });
 
   it("opens an SSE stream with an endpoint event", async () => {
@@ -147,6 +172,49 @@ describe("SSE HTTP server with auth", () => {
     const text = await readSseEndpointEvent(response);
     expect(text).toContain("event: endpoint");
     expect(text).toContain("/messages?sessionId=");
+  });
+
+  it("rejects POST /mcp without a token", async () => {
+    const base = await listen(httpServer);
+    const response = await fetch(`${base}/mcp`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-03-26",
+          capabilities: {},
+          clientInfo: { name: "curl", version: "0" },
+        },
+      }),
+    });
+    expect(response.status).toBe(401);
+  });
+
+  it("accepts streamable HTTP with a raw Authorization value", async () => {
+    const base = await listen(httpServer);
+    const transport = new StreamableHTTPClientTransport(new URL(`${base}/mcp`), {
+      requestInit: { headers: { Authorization: authToken } },
+    });
+    const client = new Client({ name: "streamable-raw-auth", version: "0.0.0" });
+    await client.connect(transport);
+    try {
+      const tools = await client.listTools();
+      expect(tools.tools.some((tool) => tool.name === "scb_search_companies")).toBe(true);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("rejects GET /mcp without a token", async () => {
+    const base = await listen(httpServer);
+    const response = await fetch(`${base}/mcp`, { headers: { Accept: "text/event-stream" } });
+    expect(response.status).toBe(401);
   });
 
   it("opens an SSE stream with X-MCP-Auth", async () => {

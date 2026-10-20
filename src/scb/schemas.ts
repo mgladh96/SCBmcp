@@ -112,6 +112,37 @@ export const searchCompaniesInputSchema = z.object({
   maxRows: searchProjectionSchema.shape.maxRows,
 });
 
+/** Default row cap for the voice lookup tool. Search still counts before fetch. */
+export const FIND_COMPANY_DEFAULT_MAX_ROWS = 5;
+
+export const findCompanyInputSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(1)
+    .optional()
+    .describe(
+      "Del av företagsnamn. Söks med Innehaller mot SCB-variabeln Företagsnamn. Ange name och/eller organizationNumber.",
+    ),
+  organizationNumber: z
+    .string()
+    .trim()
+    .min(1)
+    .optional()
+    .describe(
+      "Organisationsnummer, 10 eller 12 siffror. Exakt träff (ArLikaMed) på OrgNr (10 siffror). Det här är detaljuppslaget — samma verktyg, inte ett separat get.",
+    ),
+  maxRows: z
+    .number()
+    .int()
+    .min(1)
+    .max(MAX_SEARCH_MAX_ROWS)
+    .optional()
+    .describe(
+      `Max rader i svaret. Utelämnad = ${FIND_COMPANY_DEFAULT_MAX_ROWS}. Högst ${MAX_SEARCH_MAX_ROWS}. SCB hämtar fortfarande hela mängden efter 2000-vakten.`,
+    ),
+});
+
 export const countWorkplacesInputSchema = z.object({
   filters: scbFiltersSchema,
 });

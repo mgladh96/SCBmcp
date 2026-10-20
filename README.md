@@ -26,8 +26,8 @@ JE och AE anges alltid explicit. De döljs inte bakom generiska ”provider”-t
 ```
 AI-agent
    ↓
-MCP-server (HTTP + SSE)
-http://127.0.0.1:3000/sse
+MCP-server (streamable HTTP /mcp och SSE /sse)
+http://127.0.0.1:3000/mcp
    ↓
 SCB-klient (mTLS, rate limit, skydd mot mer än 2 000 rader)
    ↓
@@ -68,13 +68,17 @@ Hjälpsidor (certifikat krävs):
 | --- | --- | --- |
 | `SCB_BASE_URL` | nej | Standard `https://privateapi.scb.se/nv0101/v1/sokpavar` |
 | `SCB_API_ID` | ja | API-id från certifikatnamnet |
-| `SCB_CERT_PATH` | ja | Sökväg till `.pfx`-filen |
+| `SCB_CERT_PATH` | ja, om inte base64 | Sökväg till `.pfx`-filen. Lokal standard. |
+| `SCB_CERT_BASE64` | ja, om ingen fil | Base64 av `.pfx` (en rad). Används när filen saknas, t.ex. Cloud Run. Laddas som buffer, skrivs inte till disk. |
 | `SCB_CERT_PASSWORD` | ja | Certifikatlösenord |
 | `SCB_API_ID_HEADER` | nej | Headernamn för API-id. Standard `api-id`. Kontrollera mot SCB:s hjälpsidor om anrop avvisas. |
 | `SCB_LOG_LEVEL` | nej | `debug`, `info` eller `error`. Loggar går till stderr. MCP-autentiseringstoken loggas aldrig. |
-| `MCP_HOST` | nej | Bindadress. Standard `127.0.0.1`. Bindning mot annat än loopback (t.ex. `0.0.0.0`) kräver `MCP_AUTH_TOKEN`. |
-| `MCP_PORT` | nej | HTTP-port. Standard `3000`. |
-| `MCP_AUTH_TOKEN` | rekommenderas | Delad hemlighet för MCP HTTP/SSE (`/sse`, `/messages`). Obligatorisk när `MCP_HOST` inte är loopback. |
+| `MCP_HOST` | nej | Bindadress. Standard `127.0.0.1`. Om `PORT` är satt och `MCP_HOST` saknas binds `0.0.0.0`. Bindning mot annat än loopback kräver `MCP_AUTH_TOKEN`. |
+| `MCP_PORT` | nej | HTTP-port. Standard `3000`. Ignoreras när `PORT` är satt. |
+| `PORT` | nej | Cloud Run-port. Vinner över `MCP_PORT`. |
+| `MCP_AUTH_TOKEN` | rekommenderas | Delad hemlighet för `/mcp`, `/sse` och `/messages`. Obligatorisk när bindningen inte är loopback. |
+| `MCP_AUTH_HEADER` | nej | Extra headernamn. Standard `x-mcp-auth` (`X-MCP-Auth`). |
+| `MCP_EXPOSED_TOOLS` | nej | Kommaseparerad verktygslista, eller preset `voice` (`scb_find_company`). Utelämnad = alla verktyg. |
 | `SCB_LIVE_TESTS` | nej | Sätt till `true` endast när du kör live-tester mot SCB |
 | `SCB_METADATA_CACHE_BYPASS` | nej | `true` hoppar över processcachen för kategorier, variabler och kodtabeller |
 | `SCB_CATALOG_PATH` | nej | Sökväg till offline-katalogen. Standard `data/scb-catalog/catalog.json` |
@@ -108,18 +112,22 @@ pnpm build
 pnpm start
 ```
 
-Processen är en HTTP-server. MCP använder **SSE**:
+Processen är en HTTP-server. MCP lyssnar med två transporter:
 
 - Health / URL-info: `http://127.0.0.1:3000/health` (ingen MCP-autentisering; exponerar inga hemligheter)
+- Streamable HTTP (stateless JSON): `http://127.0.0.1:3000/mcp`
 - SSE (klienter ansluter här): `http://127.0.0.1:3000/sse`
 - Message POST: `http://127.0.0.1:3000/messages?sessionId=...`
 
-När `MCP_AUTH_TOKEN` är satt krävs den för `/sse` och `/messages`. Skicka antingen:
+Lokal Cursor-konfiguration fortsätter att använda `/sse`. Cloud Run och ElevenLabs bör använda `/mcp` (se `DEPLOY-CLOUDRUN.md`).
+
+När `MCP_AUTH_TOKEN` är satt krävs den för `/mcp`, `/sse` och `/messages`. Skicka antingen:
 
 - `Authorization: Bearer <token>`
-- `X-MCP-Auth: <token>`
+- `Authorization: <token>` (rått värde, t.ex. ElevenLabs Secret token)
+- `X-MCP-Auth: <token>` (eller headern i `MCP_AUTH_HEADER`)
 
-Oautentiserade MCP-anrop får **401**. Vid uppstart loggas `auth: "required"` eller `auth: "disabled"` — aldrig tokenvärdet.
+Oautentiserade MCP-anrop får **401**. `/health` är öppen. Vid uppstart loggas `auth: "required"` eller `auth: "disabled"` — aldrig tokenvärdet.
 
 Loggar går till stderr.
 
@@ -148,7 +156,7 @@ SCB-certifikatinställningar ligger i serverns processmiljö (`.env`), inte i MC
 
 SCB-klientcertifikatet autentiserar den här processen **mot SCB**. En separat delad hemlighet autentiserar **MCP-klienter mot den här servern**, så att vem som helst som når porten inte kan förbruka SCB-kvoten.
 
-- Sätt `MCP_AUTH_TOKEN` även på localhost. Loopback utan token startar fortfarande (för lokala kontroller), men `/sse` och `/messages` är då oautentiserade.
+- Sätt `MCP_AUTH_TOKEN` även på localhost. Loopback utan token startar fortfarande (för lokala kontroller), men `/mcp`, `/sse` och `/messages` är då oautentiserade.
 - Bindning mot en adress som inte är loopback (`0.0.0.0`, `::`, en LAN-IP) **vägrar att starta** om inte `MCP_AUTH_TOKEN` är satt.
 - CORS är inte `Access-Control-Allow-Origin: *`. Loopback-`Origin`-värden kan speglas; `Authorization` och `X-MCP-Auth` är tillåtna headers.
 
@@ -166,6 +174,7 @@ SCB-klientcertifikatet autentiserar den här processen **mot SCB**. En separat d
 | `scb_get_category_values` | Kodtabell för en SCB-kategori. Valfri `query` + `limit` (standard ~50). Svar: `{ total, returned, items }`. Full dump bara med `includeAll` eller `limit=0`. |
 | `scb_list_variables` | Variabler för kontot. Valfri `includeValueMetadata`. Svar: `{ items, raw }`. |
 | `scb_count_companies` | Räkna JE-träffar |
+| `scb_find_company` | Röst-/uppslagsverktyg: namn och/eller organisationsnummer. Svaret är företagsposten (detaljerna). `maxRows` standard 5. |
 | `scb_search_companies` | Hämta JE-träffar (räknar först; avvisar > 2 000; hoppar `hamta` vid count 0). Valfritt `fields[]` + `maxRows` (standard 75). |
 | `scb_count_workplaces` | Räkna AE-träffar |
 | `scb_search_workplaces` | Hämta AE-träffar (samma count-regler och projektion som JE) |

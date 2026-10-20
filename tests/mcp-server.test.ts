@@ -93,6 +93,29 @@ describe("MCP server instructions and prompts", () => {
     expect(text).toContain("Innehaller");
   });
 
+  it("can expose only the voice lookup tool", async () => {
+    const mcp = createMcpServer(
+      createToolHandlers(
+        createTestClient(async () => jsonResponse(200, { Kategorier: [] })),
+        createLogger("error"),
+      ),
+      ["scb_find_company"],
+    );
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "voice-tools", version: "0.0.0" });
+    await Promise.all([mcp.connect(serverTransport), client.connect(clientTransport)]);
+    sessions.push({
+      close: async () => {
+        await client.close();
+        await mcp.close();
+      },
+    });
+    const tools = await client.listTools();
+    expect(tools.tools.map((tool) => tool.name)).toEqual(["scb_find_company"]);
+    expect(client.getServerCapabilities()?.prompts).toBeUndefined();
+    expect(client.getServerCapabilities()?.resources).toBeUndefined();
+  });
+
   it("registers explore, count-then-fetch, and too-broad prompts", async () => {
     const client = await connect();
     const listed = await client.listPrompts();

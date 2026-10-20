@@ -93,6 +93,42 @@ describe("MCP JE vs AE tools", () => {
   });
 });
 
+describe("scb_find_company", () => {
+  it("searches by name and organisation number and caps rows for a voice agent", async () => {
+    const bodies: unknown[] = [];
+    const handlers = createToolHandlers(
+      createTestClient(async (url, init) => {
+        if (url.includes("hamtaforetag")) {
+          bodies.push(JSON.parse(init.body ?? "{}"));
+          return jsonResponse(200, [{ "Företagsnamn": "Testbolaget AB", OrgNr: "5560747569", Reklam: "21" }]);
+        }
+        return jsonResponse(200, 1);
+      }),
+      silent,
+    );
+    const result = await handlers.scb_find_company({
+      name: "Testbolaget",
+      organizationNumber: "5560747569",
+    });
+    expect(result.isError).toBeUndefined();
+    const payload = JSON.parse(result.content[0]?.text ?? "{}") as { maxRows: number; count: number };
+    expect(payload.count).toBe(1);
+    expect(payload.maxRows).toBe(5);
+    expect(bodies[0]).toMatchObject({
+      variabler: [
+        { Variabel: "Företagsnamn", Operator: "Innehaller", Varde1: "Testbolaget" },
+        { Variabel: "OrgNr (10 siffror)", Operator: "ArLikaMed", Varde1: "5560747569" },
+      ],
+    });
+  });
+
+  it("requires a name or an organisation number", async () => {
+    const handlers = createToolHandlers(createTestClient(async () => jsonResponse(200, 0)), silent);
+    const result = await handlers.scb_find_company({});
+    expect(result.isError).toBe(true);
+  });
+});
+
 describe("MCP QUERY_TOO_BROAD", () => {
   it("returns structured QUERY_TOO_BROAD without fetching rows", async () => {
     const handlers = createToolHandlers(

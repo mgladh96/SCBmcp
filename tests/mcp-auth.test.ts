@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractBearerToken, mcpTokensEqual } from "../src/mcp/auth.js";
+import { extractBearerToken, mcpTokensEqual, tokenFromAuthorization } from "../src/mcp/auth.js";
 
 describe("MCP token comparison", () => {
   it("accepts equal tokens", () => {
@@ -20,5 +20,16 @@ describe("Bearer extraction", () => {
   it("rejects missing or non-bearer credentials", () => {
     expect(extractBearerToken(undefined)).toBeUndefined();
     expect(extractBearerToken("Basic abc")).toBeUndefined();
+  });
+});
+
+describe("Authorization header values", () => {
+  it("accepts a raw token, which is how an ElevenLabs secret token may be sent", () => {
+    expect(tokenFromAuthorization("secret-value")).toBe("secret-value");
+  });
+
+  it("accepts Bearer and ignores other schemes", () => {
+    expect(tokenFromAuthorization("Bearer secret-value")).toBe("secret-value");
+    expect(tokenFromAuthorization("Basic abc")).toBeUndefined();
   });
 });
