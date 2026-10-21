@@ -1,12 +1,13 @@
 import { normalizeCompanyName } from "./normalize.js";
 import {
+  buildSearchIndex,
   CACHE_NAME_LIMIT,
-  indexCompany,
   NAME_MATCH_THRESHOLD,
   PLAUSIBLE_THRESHOLD,
   rankCompanies,
   type CachedCompany,
   type IndexedCompany,
+  type SearchIndex,
 } from "./rank.js";
 
 export { CACHE_NAME_LIMIT, NAME_MATCH_THRESHOLD, PLAUSIBLE_THRESHOLD };
@@ -14,9 +15,6 @@ export type { CachedCompany };
 
 /** In-memory company snapshot lifetime. */
 export const COMPANY_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
-
-/** Cold load budget. Past this, the voice call falls through to live SCB. */
-export const COMPANY_LOAD_BUDGET_MS = 2_500;
 
 const SIZE_CLASS_LABELS: Record<string, string> = {
   "0": "uppgift saknas",
@@ -58,20 +56,22 @@ export type NameSearchOutcome =
       lowConfidence: boolean;
     }
   | { kind: "miss"; bestScore: number; searchMs: number }
-  | { kind: "unavailable"; reason: "missing_credentials" | "load_failed" | "timeout" };
+  | { kind: "unavailable"; reason: "missing_credentials" | "load_failed" };
 
 export type OrgSearchOutcome =
   | { kind: "hit"; company: CachedCompany }
   | { kind: "miss" }
-  | { kind: "unavailable"; reason: "missing_credentials" | "load_failed" | "timeout" };
+  | { kind: "unavailable"; reason: "missing_credentials" | "load_failed" };
 
 export type CompanyDirectory = {
   searchByName(name: string, limit?: number): Promise<NameSearchOutcome>;
   findByOrganizationNumber(organizationNumber: string): Promise<OrgSearchOutcome>;
+  /** Start a load if the snapshot is missing or stale. Does not block the caller. */
+  warm(): void;
 };
 
 type Snapshot = {
-  companies: IndexedCompany[];
+  index: SearchIndex;
   byOrg: Map<string, IndexedCompany>;
   at: number;
 };
@@ -82,28 +82,23 @@ export function createCompanyDirectory(options: {
   load: () => Promise<CachedCompany[]>;
   ttlMs?: number;
   now?: () => number;
-  loadBudgetMs?: number;
 }): CompanyDirectory {
   const ttlMs = options.ttlMs ?? COMPANY_CACHE_TTL_MS;
-  const loadBudgetMs = options.loadBudgetMs ?? COMPANY_LOAD_BUDGET_MS;
   const now = options.now ?? Date.now;
   let snapshot: Snapshot | undefined;
   let inflight: Promise<Snapshot | LoadFailure> | undefined;
 
-  async function current(): Promise<Snapshot | LoadFailure | { ok: false; reason: "timeout" }> {
+  async function current(): Promise<Snapshot | LoadFailure> {
     const at = now();
     if (snapshot && at - snapshot.at < ttlMs) {
       return snapshot;
     }
-    const pending = start();
-    const raced = await withBudget(pending, loadBudgetMs);
-    if (raced === undefined) {
-      return snapshot ?? { ok: false, reason: "timeout" };
+    // A voice call must not start live SCB while the first load is still running.
+    if (!snapshot) {
+      return start();
     }
-    if ("ok" in raced) {
-      return snapshot ?? raced;
-    }
-    return raced;
+    void start();
+    return snapshot;
   }
 
   function start(): Promise<Snapshot | LoadFailure> {
@@ -133,7 +128,7 @@ export function createCompanyDirectory(options: {
         return { kind: "unavailable", reason: loaded.reason };
       }
       const started = now();
-      const ranked = rankCompanies(loaded.companies, name, limit);
+      const ranked = rankCompanies(loaded.index, name, limit);
       const searchMs = Math.max(0, now() - started);
       if (ranked.matched === 0 || ranked.bestScore < PLAUSIBLE_THRESHOLD) {
         return { kind: "miss", bestScore: ranked.bestScore, searchMs };
@@ -158,6 +153,12 @@ export function createCompanyDirectory(options: {
       }
       const company = loaded.byOrg.get(key);
       return company ? { kind: "hit", company } : { kind: "miss" };
+    },
+    warm() {
+      const at = now();
+      if (!snapshot || at - snapshot.at >= ttlMs) {
+        void start();
+      }
     },
   };
 }
@@ -227,33 +228,29 @@ export function organizationNumberKey(value: string): string | undefined {
 }
 
 function toSnapshot(companies: readonly CachedCompany[], at: number): Snapshot {
-  const indexed = companies.map((company) => indexCompany(company));
+  const index = buildSearchIndex(companies);
   const byOrg = new Map<string, IndexedCompany>();
-  for (const company of indexed) {
+  for (const company of index.companies) {
     byOrg.set(company.organizationNumber, company);
   }
-  return { companies: indexed, byOrg, at };
+  return { index, byOrg, at };
 }
 
-function isSnapshot(value: Snapshot | LoadFailure | { ok: false; reason: "timeout" }): value is Snapshot {
-  return "companies" in value;
+function isSnapshot(value: Snapshot | LoadFailure): value is Snapshot {
+  return "index" in value;
 }
 
-async function withBudget<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise<undefined>((resolve) => {
-        timer = setTimeout(() => resolve(undefined), ms);
-      }),
-    ]);
-  } finally {
-    if (timer) {
-      clearTimeout(timer);
-    }
+/**
+ * Overlap the Firestore read with the rest of cold start. The microtask runs
+ * after this module has finished evaluating, so the Firestore import cannot
+ * deadlock on the directory cycle. The first search awaits the same load.
+ */
+queueMicrotask(() => {
+  if (!process.env.GCP_SA_JSON?.trim()) {
+    return;
   }
-}
+  defaultCompanyDirectory().warm();
+});
 
 function formatSizeClass(value: unknown): string | undefined {
   const text = stringValue(value);

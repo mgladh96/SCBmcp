@@ -3,11 +3,13 @@ import { companyFromDocument, createCompanyDirectory, organizationNumberKey } fr
 import { parseServiceAccount } from "../src/companies/firestore.js";
 import { normalizeCompanyName } from "../src/companies/normalize.js";
 import {
+  buildSearchIndex,
   indexCompany,
   NAME_MATCH_THRESHOLD,
   PLAUSIBLE_THRESHOLD,
   rankCompanies,
   scoreCompanyName,
+  wholeTokenScore,
   type CachedCompany,
 } from "../src/companies/rank.js";
 
@@ -139,18 +141,26 @@ describe("company name ranking", () => {
     const ranked = rankCompanies(
       [
         indexCompany({
-          organizationNumber: "5560000004",
-          name: "Trelleborgs Bygg AB",
-          nameNormalized: "trelleborgs bygg",
+          organizationNumber: "5560000099",
+          name: "KENDRIL AB",
+          nameNormalized: "kendril",
           status: "verksam",
         }),
       ],
-      "Treab bygg",
+      "Kandrel",
     );
     expect(ranked.lowConfidence).toBe(true);
     expect(ranked.bestScore).toBeGreaterThanOrEqual(PLAUSIBLE_THRESHOLD);
     expect(ranked.bestScore).toBeLessThan(NAME_MATCH_THRESHOLD);
-    expect(ranked.results[0]?.name).toBe("Trelleborgs Bygg AB");
+    expect(ranked.results[0]?.name).toBe("KENDRIL AB");
+  });
+
+  it("does not treat a letter sequence inside a longer word as a name", () => {
+    expect(wholeTokenScore("treab", "treeab")).toBeGreaterThanOrEqual(NAME_MATCH_THRESHOLD);
+    expect(wholeTokenScore("treab", "petrebygg")).toBe(0);
+    expect(wholeTokenScore("treab", "istrabygg")).toBe(0);
+    expect(wholeTokenScore("torens", "rormontoren")).toBe(0);
+    expect(wholeTokenScore("torens", "torens")).toBe(1);
   });
 
   it("does not treat an unrelated name as a hit", () => {
@@ -160,31 +170,69 @@ describe("company name ranking", () => {
     expect(ranked.lowConfidence).toBe(false);
   });
 
-  it("searches a few thousand companies in well under 300 ms", () => {
-    const many = Array.from({ length: 7_200 }, (_, index) =>
-      indexCompany({
-        organizationNumber: String(5_560_000_000 + index),
-        name: `Byggbolag ${index} AB`,
-        nameNormalized: `byggbolag ${index}`,
-        status: "verksam",
-      }),
-    );
-    many[4_000] = indexCompany({
-      organizationNumber: "5599999999",
-      name: "TREEAB",
-      nameNormalized: "treeab",
-      city: "Uppsala",
-      status: "verksam",
-    });
+  it("lets a rare whole token beat generic names in a large construction corpus", () => {
+    const corpus = realisticConstructionCorpus();
+    const built = performance.now();
+    const index = buildSearchIndex(corpus);
+    const buildMs = performance.now() - built;
     const started = performance.now();
-    const ranked = rankCompanies(many, "Treab");
-    const elapsed = performance.now() - started;
-    console.log(`warm name search ${elapsed.toFixed(1)} ms over ${many.length} companies`);
-    expect(elapsed).toBeLessThan(300);
-    expect(ranked.results[0]?.organizationNumber).toBe("5599999999");
-    expect(ranked.results.length).toBeLessThanOrEqual(5);
+    const treab = rankCompanies(index, "treab bygg");
+    const treabMs = performance.now() - started;
+    const split = rankCompanies(index, "Tre ab bygg");
+    const torens = rankCompanies(index, "torens");
+    const again = performance.now();
+    rankCompanies(index, "treab bygg");
+    const secondMs = performance.now() - again;
+    console.log(
+      `index ${buildMs.toFixed(1)} ms, warm search ${treabMs.toFixed(1)} ms, second ${secondMs.toFixed(1)} ms over ${corpus.length} companies`,
+    );
+    expect(treabMs).toBeLessThan(300);
+    expect(secondMs).toBeLessThan(300);
+    expect(treab.lowConfidence).toBe(false);
+    expect(treab.results[0]).toMatchObject({
+      organizationNumber: "5566086376",
+      name: "TREEAB BYGG I ÖSTERSUND AB",
+    });
+    expect(treab.results.some((item) => item.name === "Istra Bygg AB" || item.name === "PeTre Bygg AB")).toBe(false);
+    expect(split.results[0]?.organizationNumber).toBe("5566086376");
+    expect(torens.results[0]?.name).toBe("TORÉNS AB");
+    expect(torens.results.some((item) => item.name.startsWith("Rörmontören"))).toBe(false);
   });
 });
+
+function realisticConstructionCorpus(): CachedCompany[] {
+  const companies: CachedCompany[] = [];
+  const push = (organizationNumber: string, name: string, nameNormalized: string) => {
+    companies.push({ organizationNumber, name, nameNormalized, status: "verksam" });
+  };
+  for (let i = 0; i < 3_500; i += 1) {
+    push(String(5_500_000_000 + i), `Firma${i} Bygg AB`, `firma${i} bygg`);
+  }
+  for (let i = 0; i < 800; i += 1) {
+    push(String(5_600_000_000 + i), `Rörmontören ${i} AB`, `rormontoren ${i}`);
+  }
+  for (let i = 0; i < 200; i += 1) {
+    push(String(5_700_000_000 + i), `Elbolag ${i} AB`, `elbolag ${i} el`);
+  }
+  for (let i = 0; i < 200; i += 1) {
+    push(String(5_710_000_000 + i), `VVS Partner ${i} AB`, `vvs partner ${i}`);
+  }
+  for (let i = 0; i < 200; i += 1) {
+    push(String(5_720_000_000 + i), `Markarbete ${i} AB`, `markarbete ${i} mark`);
+  }
+  for (let i = 0; i < 200; i += 1) {
+    push(String(5_730_000_000 + i), `Entreprenad ${i} Östersund AB`, `entreprenad ${i} ostersund`);
+  }
+  push("5566086376", "TREEAB BYGG I ÖSTERSUND AB", "treeab bygg i ostersund");
+  push("5561000001", "Istra Bygg AB", "istra bygg");
+  push("5561000002", "PeTre Bygg AB", "petre bygg");
+  push("5561000003", "PeTreBygg AB", "petrebygg");
+  push("5561000004", "Rörmontören Syd AB", "rormontoren syd");
+  push("5561000005", "RörmontörenSyd AB", "rormontorensyd");
+  push("5561000006", "TORÉNS AB", "torens");
+  push("5561000007", "TORÉNS ENTREPRENAD AB", "torens entreprenad");
+  return companies;
+}
 
 describe("company documents", () => {
   it("maps a Firestore company onto the voice fields", () => {
@@ -225,16 +273,56 @@ describe("company documents", () => {
 });
 
 describe("company directory", () => {
-  it("reuses a snapshot until the ttl and then reloads", async () => {
+  it("waits for the first index load instead of giving up", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const directory = createCompanyDirectory({
+      load: async () => {
+        await gate;
+        return [
+          company({
+            organizationNumber: "5566086376",
+            name: "TREEAB BYGG I ÖSTERSUND AB",
+            nameNormalized: "treeab bygg i ostersund",
+            status: "verksam",
+          }),
+        ];
+      },
+    });
+    let settled = false;
+    const pending = directory.searchByName("Treab bygg").then((outcome) => {
+      settled = true;
+      return outcome;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    release();
+    const outcome = await pending;
+    expect(outcome.kind).toBe("hit");
+    if (outcome.kind === "hit") {
+      expect(outcome.results[0]?.organizationNumber).toBe("5566086376");
+      expect(outcome.lowConfidence).toBe(false);
+    }
+  });
+
+  it("reuses a snapshot until the ttl and refreshes without blocking", async () => {
     let clock = 1_000;
     let loads = 0;
+    let releaseRefresh: () => void = () => {};
     const directory = createCompanyDirectory({
       load: async () => {
         loads += 1;
+        if (loads > 1) {
+          await new Promise<void>((resolve) => {
+            releaseRefresh = resolve;
+          });
+        }
         return [
           company({
             organizationNumber: "5560000001",
-            name: "TREEAB",
+            name: loads === 1 ? "TREEAB" : "TREEAB NY",
             nameNormalized: "treeab",
             status: "verksam",
           }),
@@ -242,17 +330,31 @@ describe("company directory", () => {
       },
       now: () => clock,
       ttlMs: 1_000,
-      loadBudgetMs: 50,
     });
     const first = await directory.searchByName("Treab");
     expect(first.kind).toBe("hit");
+    if (first.kind === "hit") {
+      expect(first.results[0]?.name).toBe("TREEAB");
+    }
     expect(loads).toBe(1);
     clock += 500;
     await directory.searchByName("Treab");
     expect(loads).toBe(1);
     clock += 600;
-    await directory.searchByName("Treab");
+    const during = await directory.searchByName("Treab");
     expect(loads).toBe(2);
+    expect(during.kind).toBe("hit");
+    if (during.kind === "hit") {
+      expect(during.results[0]?.name).toBe("TREEAB");
+    }
+    releaseRefresh();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const refreshed = await directory.searchByName("Treab");
+    expect(loads).toBe(2);
+    expect(refreshed.kind).toBe("hit");
+    if (refreshed.kind === "hit") {
+      expect(refreshed.results[0]?.name).toBe("TREEAB NY");
+    }
   });
 
   it("looks up an organisation number from the snapshot", async () => {

@@ -400,15 +400,15 @@ describe("scb_find_company", () => {
       {
         companies: directoryOf([
           {
-            organizationNumber: "5560000004",
-            name: "Trelleborgs Bygg AB",
-            nameNormalized: "trelleborgs bygg",
+            organizationNumber: "5560000099",
+            name: "KENDRIL AB",
+            nameNormalized: "kendril",
             status: "verksam",
           },
         ]),
       },
     );
-    const result = await handlers.scb_find_company({ name: "Treab bygg" });
+    const result = await handlers.scb_find_company({ name: "Kandrel" });
     expect(called).toBe(false);
     const payload = JSON.parse(result.content[0]?.text ?? "{}") as {
       source?: string;
@@ -417,7 +417,7 @@ describe("scb_find_company", () => {
     };
     expect(payload.source).toBe("cache");
     expect(payload.lowConfidence).toBe(true);
-    expect(payload.results[0]?.name).toBe("Trelleborgs Bygg AB");
+    expect(payload.results[0]?.name).toBe("KENDRIL AB");
   });
 
   it("falls back to SCB when the local index has no reasonable name", async () => {
