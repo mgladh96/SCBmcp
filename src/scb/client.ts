@@ -1,8 +1,7 @@
-import { fetch as undiciFetch } from "undici";
 import { localRateLimited, mapHttpError, queryTooBroad, ScbError, unknownOperatorError, withCatalogHints } from "../domain/errors.js";
 import { createLogger, type LogLevel } from "../log.js";
 import { apiIdHeaders, createScbDispatcher, type ScbAuthConfig, validateCertConfig } from "./auth.js";
-import { classifyCategoryKind, fold, LOOKUP_KINDS, type CategoryKind, type CodeRow } from "../domain/catalog.js";
+import { classifyCategoryKind, LOOKUP_KINDS, type CategoryKind, type CodeRow } from "../domain/catalog.js";
 import { TtlCache } from "./cache.js";
 import { lookupCategoryGroups, searchCodes, type CodeLookupResult } from "./code-lookup.js";
 import { buildDiscoveryIndex, type DiscoveryIndex } from "./discovery.js";
@@ -33,7 +32,6 @@ import {
   toKodtabellBody,
   toScbQueryBody,
 } from "./payload.js";
-import { lookupCompaniesByName, type NameLookupHit } from "./name-lookup.js";
 import { SlidingWindowRateLimiter } from "./rate-limit.js";
 import { defaultSleep, withRateLimitRetry } from "./rate-limit-retry.js";
 import type { ScbFilters } from "./schemas.js";
@@ -43,7 +41,6 @@ import {
   layoutFor,
   MAX_RESULTS,
   METADATA_CACHE_TTL_MS,
-  NAME_LOOKUP_CACHE_TTL_MS,
   RATE_LIMIT_WINDOW_MS,
   type ObjectType,
 } from "./types.js";
@@ -68,7 +65,6 @@ export type ScbClientOptions = {
   bypassMetadataCache?: boolean;
   metadataCacheTtlMs?: number;
   countCacheTtlMs?: number;
-  nameCacheTtlMs?: number;
   /** Used only by metadata warm retries. Tests can inject a no-op. */
   sleep?: (ms: number) => Promise<void>;
   /**
@@ -90,10 +86,6 @@ export type SearchResult = {
   results: unknown[];
   skippedFetch?: boolean;
   countFromCache?: boolean;
-};
-
-export type VoiceNameSearch = NameLookupHit & {
-  cacheHit?: boolean;
 };
 
 /**
@@ -126,8 +118,6 @@ export class ScbClient {
   private readonly metadataCache: TtlCache<unknown>;
   private readonly discoveryCache: TtlCache<DiscoveryIndex>;
   private readonly countCache: TtlCache<number>;
-  private readonly nameCache: TtlCache<NameLookupHit>;
-  private readonly nameInflight = new Map<string, Promise<VoiceNameSearch>>();
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly catalogPath: string;
   private catalog: CatalogArtifact | undefined;
@@ -136,7 +126,7 @@ export class ScbClient {
   constructor(options: ScbClientOptions) {
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
     this.auth = options.auth;
-    this.fetchImpl = options.fetch ?? undiciFetchAdapter;
+    this.fetchImpl = options.fetch ?? (globalThis.fetch as FetchLike);
     this.rateLimiter = options.rateLimiter ?? new SlidingWindowRateLimiter();
     this.log = createLogger(options.logLevel ?? "info");
     this.bypassMetadataCache =
@@ -145,7 +135,6 @@ export class ScbClient {
     this.metadataCache = new TtlCache(metadataTtl);
     this.discoveryCache = new TtlCache(metadataTtl);
     this.countCache = new TtlCache(options.countCacheTtlMs ?? COUNT_CACHE_TTL_MS);
-    this.nameCache = new TtlCache(options.nameCacheTtlMs ?? NAME_LOOKUP_CACHE_TTL_MS);
     this.sleep = options.sleep ?? defaultSleep;
     this.catalogPath =
       typeof options.offlineCatalog === "string" ? options.offlineCatalog : resolveCatalogPath();
@@ -248,44 +237,6 @@ export class ScbClient {
 
   async searchCompanies(filters: ScbFilters, options: SearchCallOptions = {}): Promise<SearchResult> {
     return this.search("company", filters, "scb_search_companies", options);
-  }
-
-  /**
-   * Voice name search. Reuses the process TLS agent, caches the candidate
-   * rows for a minute, and does not download every Innehaller hit.
-   */
-  async findCompaniesByName(nameVariable: string, name: string, limit: number): Promise<VoiceNameSearch> {
-    const key = `${nameVariable}\n${fold(name.trim())}\n${limit}`;
-    const cached = this.nameCache.get(key);
-    if (cached) {
-      this.log.info("SCB name cache hit", {
-        tool: "scb_find_company",
-        cacheHit: true,
-        count: cached.count,
-        queryStatus: cached.strategy,
-      });
-      return { ...cached, cacheHit: true };
-    }
-    const inflight = this.nameInflight.get(key);
-    if (inflight) {
-      return inflight;
-    }
-    const promise = lookupCompaniesByName(
-      {
-        count: (filters) => this.count("company", filters, "scb_find_company"),
-        fetch: (filters) => this.fetchCompanies(filters),
-      },
-      { nameVariable, name, limit },
-    )
-      .then((hit) => {
-        this.nameCache.set(key, hit);
-        return hit;
-      })
-      .finally(() => {
-        this.nameInflight.delete(key);
-      });
-    this.nameInflight.set(key, promise);
-    return promise;
   }
 
   async searchWorkplaces(filters: ScbFilters, options: SearchCallOptions = {}): Promise<SearchResult> {
@@ -739,26 +690,6 @@ export class ScbClient {
     }
   }
 
-  private async fetchCompanies(filters: ScbFilters): Promise<unknown[]> {
-    this.assertKnownOperators(filters);
-    const prepared = this.prepareFilters("company", filters);
-    const layout = layoutFor("company");
-    const payload = await this.request("POST", searchPath(layout), {
-      tool: "scb_find_company",
-      body: toScbQueryBody(prepared, layout),
-      objectType: "company",
-      submittedCategories: prepared.categories.map((item) => item.category),
-      submittedVariables: prepared.variables.map((item) => item.variable),
-    });
-    try {
-      return parseSearchResponse(payload);
-    } catch (error) {
-      throw new ScbError("SCB_RESPONSE_VALIDATION_ERROR", "SCB search response was malformed.", false, {
-        cause: error instanceof Error ? error.message : "unknown",
-      });
-    }
-  }
-
   private async search(
     objectType: ObjectType,
     filters: ScbFilters,
@@ -929,18 +860,6 @@ export class ScbClient {
       throw this.enrichError(mapped, options.objectType);
     }
   }
-}
-
-function undiciFetchAdapter(
-  input: string,
-  init: {
-    method: string;
-    headers: Record<string, string>;
-    body?: string;
-    dispatcher?: unknown;
-  },
-): Promise<Response> {
-  return undiciFetch(input, init as Parameters<typeof undiciFetch>[1]) as unknown as Promise<Response>;
 }
 
 function withSelectVariables(filters: ScbFilters, extra?: ScbFilters["variables"]): ScbFilters {

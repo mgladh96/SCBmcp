@@ -481,36 +481,6 @@ export function createToolHandlers(
           }),
         );
       }
-      const limit = parsed.data.maxRows ?? FIND_COMPANY_DEFAULT_MAX_ROWS;
-      if (parsed.data.name && !parsed.data.organizationNumber) {
-        const started = Date.now();
-        try {
-          const found = await client.findCompaniesByName(
-            resolveJeNameVariable(client.offlineVariableNames("company")),
-            parsed.data.name,
-            limit,
-          );
-          log.info("MCP tool", {
-            tool: "scb_find_company",
-            durationMs: Date.now() - started,
-            status: 200,
-            count: found.count,
-            queryStatus: found.strategy,
-            ...(found.cacheHit ? { cacheHit: true } : {}),
-          });
-          return jsonResult(
-            voiceCompanyPayload(found.results, {
-              count: found.count,
-              nameQuery: parsed.data.name,
-              limit,
-              municipalityLabels: municipalityLabels(client),
-            }),
-          );
-        } catch (error) {
-          logToolError("scb_find_company", started, error);
-          return voiceErrorResult(error);
-        }
-      }
       const variables: ScbFilters["variables"] = [];
       if (parsed.data.name) {
         variables.push({
@@ -526,6 +496,7 @@ export function createToolHandlers(
           value: parsed.data.organizationNumber,
         });
       }
+      const limit = parsed.data.maxRows ?? FIND_COMPANY_DEFAULT_MAX_ROWS;
       return runCompanySearch(
         "scb_find_company",
         { categories: [], variables },

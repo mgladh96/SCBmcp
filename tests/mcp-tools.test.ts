@@ -242,13 +242,9 @@ describe("scb_find_company", () => {
     );
     const result = await handlers.scb_find_company({ name: "IKEA" });
     expect(result.isError).toBeUndefined();
-    const variabler = bodies.flatMap(
-      (body) => (body as { variabler?: Array<{ Variabel: string; Operator: string }> }).variabler ?? [],
-    );
-    expect(variabler.length).toBeGreaterThan(0);
-    expect(variabler.every((item) => item.Variabel === "Namn")).toBe(true);
+    const variabler = (bodies[0] as { variabler: Array<{ Variabel: string }> }).variabler;
+    expect(variabler).toEqual([{ Variabel: "Namn", Operator: "Innehaller", Varde1: "IKEA", Varde2: "" }]);
     expect(variabler.map((item) => item.Variabel)).not.toContain("Företagsnamn");
-    expect(variabler.some((item) => item.Operator === "Innehaller" && item.Variabel === "Namn")).toBe(true);
   });
 
   it("does not send Företagsnamn when that is the only catalog name", async () => {
@@ -267,11 +263,7 @@ describe("scb_find_company", () => {
       silent,
     );
     await handlers.scb_find_company({ name: "IKEA" });
-    const names = bodies.flatMap(
-      (body) => (body as { variabler?: Array<{ Variabel: string }> }).variabler?.map((item) => item.Variabel) ?? [],
-    );
-    expect(names.length).toBeGreaterThan(0);
-    expect(names.every((name) => name === "Namn")).toBe(true);
+    expect((bodies[0] as { variabler: Array<{ Variabel: string }> }).variabler[0]?.Variabel).toBe("Namn");
   });
 
   it("uses Firma when the purchased list has Firma and not Namn", async () => {
@@ -290,11 +282,7 @@ describe("scb_find_company", () => {
       silent,
     );
     await handlers.scb_find_company({ name: "IKEA" });
-    const names = bodies.flatMap(
-      (body) => (body as { variabler?: Array<{ Variabel: string }> }).variabler?.map((item) => item.Variabel) ?? [],
-    );
-    expect(names.length).toBeGreaterThan(0);
-    expect(names.every((name) => name === "Firma")).toBe(true);
+    expect((bodies[0] as { variabler: Array<{ Variabel: string }> }).variabler[0]?.Variabel).toBe("Firma");
   });
 
   it("returns a short voice error when SCB rejects the variable", async () => {

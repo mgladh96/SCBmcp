@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { Agent } from "undici";
 import { ScbError } from "../domain/errors.js";
@@ -74,41 +73,15 @@ export function loadCertPfx(config: ScbAuthConfig): Buffer {
   return readFileSync(certPath);
 }
 
-const dispatchers = new Map<string, Agent>();
-
-/**
- * One TLS agent per certificate for the life of the process.
- * Vercel reuses the isolate, and a new ScbClient must not handshake again.
- */
 export function createScbDispatcher(config: ScbAuthConfig): Agent {
   const pfx = loadCertPfx(config);
-  const key = createHash("sha256")
-    .update(config.apiId)
-    .update("\0")
-    .update(config.certPassword)
-    .update("\0")
-    .update(pfx)
-    .digest("hex");
-  const existing = dispatchers.get(key);
-  if (existing) {
-    return existing;
-  }
   try {
-    const agent = new Agent({
+    return new Agent({
       connect: {
         pfx,
         passphrase: config.certPassword,
-        timeout: 10_000,
       },
-      keepAliveTimeout: 60_000,
-      keepAliveMaxTimeout: 120_000,
-      connections: 8,
-      pipelining: 1,
-      headersTimeout: 30_000,
-      bodyTimeout: 30_000,
     });
-    dispatchers.set(key, agent);
-    return agent;
   } catch (error) {
     throw new ScbError(
       "SCB_AUTH_ERROR",
@@ -117,13 +90,6 @@ export function createScbDispatcher(config: ScbAuthConfig): Agent {
       { cause: error instanceof Error ? error.message : "unknown" },
     );
   }
-}
-
-export function clearScbDispatcherCache(): void {
-  for (const agent of dispatchers.values()) {
-    void agent.close().catch(() => undefined);
-  }
-  dispatchers.clear();
 }
 
 export function apiIdHeaders(config: Pick<ScbAuthConfig, "apiId" | "apiIdHeader">): Record<string, string> {

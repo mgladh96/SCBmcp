@@ -99,29 +99,6 @@ export function voiceCompanyPayload(
   return payload;
 }
 
-/** Active, non-foreign rows. These outrank every inactive or foreign company. */
-export function voicePreferredPopulation(rows: unknown[]): number {
-  return voicePreferredAtLeast(rows, Number.NEGATIVE_INFINITY);
-}
-
-/**
- * Active Swedish rows whose size-class floor is at least `minSize`.
- * Employee bands are comparable: 10–19 has floor 10, 1–4 has floor 1, 0 employees has floor 0.
- */
-export function voicePreferredAtLeast(rows: unknown[], minSize: number): number {
-  let preferred = 0;
-  for (let index = 0; index < rows.length; index += 1) {
-    const ranked = rankRow(rows[index], index, undefined, undefined);
-    if (ranked.activity === "inactive" || ranked.seat === "foreign") {
-      continue;
-    }
-    if (ranked.size >= minSize) {
-      preferred += 1;
-    }
-  }
-  return preferred;
-}
-
 function compareRanked(a: Ranked, b: Ranked): number {
   const activity = activityRank(b.activity) - activityRank(a.activity);
   if (activity !== 0) {
