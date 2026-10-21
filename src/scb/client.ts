@@ -52,6 +52,7 @@ export type FetchLike = (
     headers: Record<string, string>;
     body?: string;
     dispatcher?: unknown;
+    signal?: AbortSignal;
   },
 ) => Promise<Response>;
 
@@ -95,6 +96,8 @@ export type SearchResult = {
  */
 export type SearchCallOptions = {
   selectVariables?: ScbFilters["variables"];
+  /** Aborts the count and hamta calls. Used by the voice name-search fallback. */
+  signal?: AbortSignal;
 };
 
 type RequestContext = {
@@ -105,6 +108,7 @@ type RequestContext = {
   field?: string;
   submittedCategories?: string[];
   submittedVariables?: string[];
+  signal?: AbortSignal;
 };
 
 export class ScbClient {
@@ -661,7 +665,12 @@ export class ScbClient {
     });
   }
 
-  private async count(objectType: ObjectType, filters: ScbFilters, tool: string): Promise<number> {
+  private async count(
+    objectType: ObjectType,
+    filters: ScbFilters,
+    tool: string,
+    signal?: AbortSignal,
+  ): Promise<number> {
     this.assertKnownOperators(filters);
     const prepared = this.prepareFilters(objectType, filters);
     const cacheKey = countCacheKey(objectType, prepared);
@@ -678,6 +687,7 @@ export class ScbClient {
       objectType,
       submittedCategories: prepared.categories.map((item) => item.category),
       submittedVariables: prepared.variables.map((item) => item.variable),
+      ...(signal ? { signal } : {}),
     });
     try {
       const count = parseCountResponse(payload);
@@ -700,7 +710,9 @@ export class ScbClient {
     const prepared = this.prepareFilters(objectType, filters);
     const cacheKey = countCacheKey(objectType, prepared);
     const countFromCache = this.countCache.get(cacheKey) !== undefined;
-    const count = await this.count(objectType, prepared, countTool);
+    const count = options.signal
+      ? await this.count(objectType, prepared, countTool, options.signal)
+      : await this.count(objectType, prepared, countTool);
     if (count > MAX_RESULTS) {
       throw queryTooBroad(count, MAX_RESULTS, {
         objectType,
@@ -724,6 +736,7 @@ export class ScbClient {
       objectType,
       submittedCategories: fetchFilters.categories.map((item) => item.category),
       submittedVariables: fetchFilters.variables.map((item) => item.variable),
+      ...(options.signal ? { signal: options.signal } : {}),
     });
     try {
       const result: SearchResult = { count, results: parseSearchResponse(payload) };
@@ -792,6 +805,7 @@ export class ScbClient {
         headers: Record<string, string>;
         body?: string;
         dispatcher?: unknown;
+        signal?: AbortSignal;
       } = {
         method,
         headers: {
@@ -805,6 +819,12 @@ export class ScbClient {
       }
       if (this.dispatcher) {
         init.dispatcher = this.dispatcher;
+      }
+      if (options.signal) {
+        init.signal = options.signal;
+      }
+      if (options.signal?.aborted) {
+        throw new ScbError("SCB_UNAVAILABLE", "SCB request failed.", true);
       }
       const response = await this.fetchImpl(url, init);
       status = response.status;

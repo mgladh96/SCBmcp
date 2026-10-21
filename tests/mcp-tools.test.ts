@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createCompanyDirectory, type CachedCompany } from "../src/companies/directory.js";
 import { createLogger } from "../src/log.js";
 import { createToolHandlers } from "../src/mcp/tools.js";
 import { ScbError } from "../src/domain/errors.js";
@@ -7,6 +8,33 @@ import { MAX_RESULTS } from "../src/scb/types.js";
 import { createTestClient, jsonResponse } from "./helpers.js";
 
 const silent = createLogger("error");
+
+function voiceCompanies(): CachedCompany[] {
+  return [
+    {
+      organizationNumber: "5560000001",
+      name: "TREEAB",
+      nameNormalized: "treeab",
+      city: "Uppsala",
+      sizeClass: "20-49 anställda",
+      industry: "41200 Byggande av hus",
+      status: "verksam",
+    },
+    {
+      organizationNumber: "5560000002",
+      name: "TORÉNS AB",
+      nameNormalized: "torens",
+      city: "Malmö",
+      status: "verksam",
+    },
+  ];
+}
+
+function directoryOf(companies: CachedCompany[]) {
+  return createCompanyDirectory({
+    load: async () => companies,
+  });
+}
 
 describe("MCP input validation", () => {
   it("rejects missing objectType", async () => {
@@ -129,6 +157,7 @@ describe("scb_find_company", () => {
     };
     expect(payload.count).toBe(1);
     expect(payload.returned).toBe(1);
+    expect(payload).toMatchObject({ source: "scb", attribution: "Källa: SCB" });
     expect(payload.results).toEqual([
       { organizationNumber: "5560747569", name: "Testbolaget AB" },
     ]);
@@ -305,6 +334,105 @@ describe("scb_find_company", () => {
     expect(result.content[0]?.text.length).toBeLessThan(120);
     expect(payload).not.toHaveProperty("details");
     expect(payload).not.toHaveProperty("nearestNames");
+  });
+
+  it("answers a spoken name from the local index and does not call SCB", async () => {
+    let called = false;
+    const handlers = createToolHandlers(
+      createTestClient(async () => {
+        called = true;
+        return jsonResponse(200, 0);
+      }),
+      silent,
+      { companies: directoryOf(voiceCompanies()) },
+    );
+    const result = await handlers.scb_find_company({ name: "Treab" });
+    expect(called).toBe(false);
+    expect(result.isError).toBeUndefined();
+    const payload = JSON.parse(result.content[0]?.text ?? "{}") as {
+      count: number;
+      returned: number;
+      source?: string;
+      attribution?: string;
+      results: Array<{ organizationNumber?: string; name?: string; city?: string; industry?: string; status?: string }>;
+    };
+    expect(payload).toMatchObject({
+      source: "cache",
+      attribution: "Källa: SCB",
+      count: 1,
+      returned: 1,
+    });
+    expect(payload.results[0]).toEqual({
+      organizationNumber: "5560000001",
+      name: "TREEAB",
+      city: "Uppsala",
+      sizeClass: "20-49 anställda",
+      industry: "41200 Byggande av hus",
+      status: "verksam",
+    });
+  });
+
+  it("resolves an organisation number from the local index before SCB", async () => {
+    let called = false;
+    const handlers = createToolHandlers(
+      createTestClient(async () => {
+        called = true;
+        return jsonResponse(200, 0);
+      }),
+      silent,
+      { companies: directoryOf(voiceCompanies()) },
+    );
+    const result = await handlers.scb_find_company({ organizationNumber: "165560000001" });
+    expect(called).toBe(false);
+    const payload = JSON.parse(result.content[0]?.text ?? "{}") as { source?: string; results: Array<{ name?: string }> };
+    expect(payload.source).toBe("cache");
+    expect(payload.results[0]?.name).toBe("TREEAB");
+  });
+
+  it("falls back to SCB when the local index has no reasonable name", async () => {
+    const bodies: unknown[] = [];
+    const handlers = createToolHandlers(
+      createTestClient(async (url, init) => {
+        if (url.includes("hamtaforetag")) {
+          bodies.push(JSON.parse(init.body ?? "{}"));
+          return jsonResponse(200, [{ Företagsnamn: "IKEA of Sweden AB", OrgNr: "5560747569" }]);
+        }
+        return jsonResponse(200, 1);
+      }),
+      silent,
+      { companies: directoryOf(voiceCompanies()) },
+    );
+    const result = await handlers.scb_find_company({ name: "IKEA" });
+    expect(result.isError).toBeUndefined();
+    expect(bodies).toHaveLength(1);
+    const payload = JSON.parse(result.content[0]?.text ?? "{}") as { source?: string; results: Array<{ name?: string }> };
+    expect(payload.source).toBe("scb");
+    expect(payload.results[0]?.name).toBe("IKEA of Sweden AB");
+  });
+
+  it("gives up on a slow live name search before the voice agent is stuck", async () => {
+    const handlers = createToolHandlers(
+      createTestClient(
+        (_url, init) =>
+          new Promise((_resolve, reject) => {
+            init.signal?.addEventListener("abort", () => {
+              reject(Object.assign(new Error("The operation was aborted"), { name: "AbortError" }));
+            });
+          }),
+      ),
+      silent,
+      {
+        companies: directoryOf([]),
+        liveNameTimeoutMs: 40,
+      },
+    );
+    const started = Date.now();
+    const result = await handlers.scb_find_company({ name: "IKEA" });
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(result.isError).toBe(true);
+    const payload = JSON.parse(result.content[0]?.text ?? "{}") as { code?: string; message?: string };
+    expect(payload.code).toBe("SCB_UNAVAILABLE");
+    expect(payload.message).toBe("Företagsregistret svarar inte just nu.");
   });
 
   it("requires a name or an organisation number", async () => {

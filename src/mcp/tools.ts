@@ -13,7 +13,13 @@ import {
 import { SCB_OPERATOR_NAMES } from "../scb/operators.js";
 import { toMetadataEnvelope, truncateMetadataItems } from "../scb/payload.js";
 import { projectSearchResults } from "../scb/projection.js";
-import { voiceCompanyPayload } from "./voice-companies.js";
+import {
+  CACHE_NAME_LIMIT,
+  defaultCompanyDirectory,
+  type CachedCompany,
+  type CompanyDirectory,
+} from "../companies/directory.js";
+import { voiceCompanyPayload, type VoiceCompany, type VoiceCompanyPayload } from "./voice-companies.js";
 import {
   companyWebsiteInputSchema,
   summarizeCompanyWebsite,
@@ -160,6 +166,47 @@ const VOICE_ERROR_MESSAGE: Partial<Record<ScbErrorCode, string>> = {
   SCB_RESPONSE_VALIDATION_ERROR: "Svaret från registret gick inte att läsa.",
 };
 
+function withScbAttribution(payload: VoiceCompanyPayload): VoiceCompanyPayload & {
+  source: "scb";
+  attribution: string;
+} {
+  return { ...payload, source: "scb", attribution: SCB_ATTRIBUTION };
+}
+
+function cacheCompanyPayload(companies: readonly CachedCompany[], matched: number): {
+  count: number;
+  returned: number;
+  results: VoiceCompany[];
+  source: "cache";
+  attribution: string;
+} {
+  return {
+    count: matched,
+    returned: companies.length,
+    results: companies.map(voiceFromCache),
+    source: "cache",
+    attribution: SCB_ATTRIBUTION,
+  };
+}
+
+function voiceFromCache(company: CachedCompany): VoiceCompany {
+  const row: VoiceCompany = {
+    organizationNumber: company.organizationNumber,
+    name: company.name,
+    status: company.status,
+  };
+  if (company.city) {
+    row.city = company.city;
+  }
+  if (company.sizeClass) {
+    row.sizeClass = company.sizeClass;
+  }
+  if (company.industry) {
+    row.industry = company.industry;
+  }
+  return row;
+}
+
 /** Short spoken line for the voice lookup. No SCB body, nearestNames, or tool lists. */
 function voiceErrorResult(error: unknown): ToolResult {
   const code: ScbErrorCode = error instanceof ScbError ? error.code : "SCB_UNAVAILABLE";
@@ -252,16 +299,24 @@ function searchEnvelope(
   return withFilterWarning(payload, objectType, options.filters, extraWarnings);
 }
 
+const SCB_ATTRIBUTION = "Källa: SCB";
+const LIVE_NAME_TIMEOUT_MS = 8_000;
+
 export function createToolHandlers(
   client: ScbClient,
   log = createLogger(),
-  options: { website?: WebsiteRuntime } = {},
+  options: {
+    website?: WebsiteRuntime;
+    companies?: CompanyDirectory;
+    liveNameTimeoutMs?: number;
+  } = {},
 ) {
   async function runCompanySearch(
     tool: string,
     filters: ScbFilters,
     projection: { fields?: string[] | undefined; maxRows?: number | undefined },
     voice?: { nameQuery?: string | undefined; limit?: number | undefined },
+    call?: { signal?: AbortSignal },
   ): Promise<ToolResult> {
     const prepared = preparedFilters("company", filters);
     if (prepared.error) {
@@ -275,6 +330,7 @@ export function createToolHandlers(
     try {
       const { count, results, skippedFetch, countFromCache } = await client.searchCompanies(
         prepared.filters,
+        call?.signal ? { signal: call.signal } : {},
       );
       log.info("MCP tool", {
         tool,
@@ -285,12 +341,14 @@ export function createToolHandlers(
       });
       if (voice) {
         return jsonResult(
-          voiceCompanyPayload(results, {
-            count,
-            nameQuery: voice.nameQuery,
-            limit: voice.limit ?? projection.maxRows,
-            municipalityLabels: municipalityLabels(client),
-          }),
+          withScbAttribution(
+            voiceCompanyPayload(results, {
+              count,
+              nameQuery: voice.nameQuery,
+              limit: voice.limit ?? projection.maxRows,
+              municipalityLabels: municipalityLabels(client),
+            }),
+          ),
         );
       }
       return jsonResult(
@@ -497,12 +555,83 @@ export function createToolHandlers(
         });
       }
       const limit = parsed.data.maxRows ?? FIND_COMPANY_DEFAULT_MAX_ROWS;
+      const directory = options.companies ?? defaultCompanyDirectory();
+      if (parsed.data.organizationNumber) {
+        const started = Date.now();
+        const found = await directory.findByOrganizationNumber(parsed.data.organizationNumber);
+        if (found.kind === "hit") {
+          log.info("MCP tool", {
+            tool: "scb_find_company",
+            durationMs: Date.now() - started,
+            status: 200,
+            count: 1,
+            source: "cache",
+          });
+          return jsonResult(cacheCompanyPayload([found.company], 1));
+        }
+      } else if (parsed.data.name) {
+        const started = Date.now();
+        const cacheLimit = parsed.data.maxRows ?? CACHE_NAME_LIMIT;
+        const found = await directory.searchByName(parsed.data.name, cacheLimit);
+        if (found.kind === "hit") {
+          log.info("MCP tool", {
+            tool: "scb_find_company",
+            durationMs: Date.now() - started,
+            status: 200,
+            count: found.matched,
+            source: "cache",
+            searchMs: found.searchMs,
+          });
+          return jsonResult(cacheCompanyPayload(found.results, found.matched));
+        }
+        log.info("MCP tool", {
+          tool: "scb_find_company",
+          durationMs: Date.now() - started,
+          queryStatus: found.kind,
+          ...(found.kind === "miss" ? { bestScore: Number(found.bestScore.toFixed(3)) } : { reason: found.reason }),
+        });
+        return runLiveNameSearch(parsed.data.name, limit);
+      }
       return runCompanySearch(
         "scb_find_company",
         { categories: [], variables },
         { maxRows: limit },
         { nameQuery: parsed.data.name, limit },
       );
+
+      function liveFilters(): ScbFilters {
+        return { categories: [], variables };
+      }
+
+      async function runLiveNameSearch(name: string, rowLimit: number): Promise<ToolResult> {
+        const timeoutMs = options.liveNameTimeoutMs ?? LIVE_NAME_TIMEOUT_MS;
+        const controller = new AbortController();
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const timedOut = new Promise<ToolResult>((resolve) => {
+          timer = setTimeout(() => {
+            controller.abort();
+            resolve(
+              voiceErrorResult(new ScbError("SCB_UNAVAILABLE", "SCB request failed.", true)),
+            );
+          }, timeoutMs);
+        });
+        try {
+          return await Promise.race([
+            runCompanySearch(
+              "scb_find_company",
+              liveFilters(),
+              { maxRows: rowLimit },
+              { nameQuery: name, limit: rowLimit },
+              { signal: controller.signal },
+            ),
+            timedOut,
+          ]);
+        } finally {
+          if (timer) {
+            clearTimeout(timer);
+          }
+        }
+      }
     },
 
     async company_website_summary(input: unknown): Promise<ToolResult> {

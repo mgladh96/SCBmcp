@@ -18,6 +18,8 @@ type LogFields = {
   queryStatus?: string;
   source?: string;
   reason?: string;
+  searchMs?: number;
+  bestScore?: number;
 };
 
 const SENSITIVE_KEY = /password|passphrase|pfx|private.?key|cert(?:ificate)?|token|secret|authorization|api.?key/i;

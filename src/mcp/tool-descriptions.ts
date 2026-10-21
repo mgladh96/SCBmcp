@@ -44,12 +44,12 @@ Anti-mönster: "Bygg" i namn ≠ SNI; operatorer som Contains; AnstSME vs Storle
 
 export const FIND_COMPANY_DESCRIPTION = `Read-only uppslag av ett företag (juridisk enhet, JE) på namn och/eller organisationsnummer. Svaret är företagsposten — det finns inget separat "hämta detaljer".
 
-- name: del av företagsnamn (variabel Namn på /api/je/koptavariabler, operator Innehaller). Svarets kolumn heter Företagsnamn.
-- organizationNumber: exakt org.nr, 10 eller 12 siffror (OrgNr (10 siffror), ArLikaMed). 10-siffrigt personnummer-likt värde avvisas.
-- Ange minst ett fält. Båda tillsammans är AND.
-- maxRows utelämnad = 3, högst 3.
+- name: del av företagsnamn. Söks först i ett lokalt register (byggföretag, SNI 41–43). Träff ger source "cache" och upp till 5 rader. Utan träff där: variabel Namn (Innehaller) mot SCB, med kort tidsgräns.
+- organizationNumber: exakt org.nr, 10 eller 12 siffror. Lokala registret först, annars OrgNr (10 siffror), ArLikaMed. 10-siffrigt personnummer-likt värde avvisas.
+- Ange minst ett fält. Båda tillsammans: org.nr i registret vinner, annars AND mot SCB.
+- maxRows utelämnad = 3 mot SCB, högst 3. Namnträff i registret ger upp till 5 om maxRows utelämnas.
 
-Svar: { count, returned, results }. Varje rad har bara organizationNumber, name, city, sizeClass, industry och status. Röstläge rankar hela träffmängden: verksamma först, svenskt säte före utland, större storleksklass, sedan exakt namn eller namn som börjar med sökningen. Inaktiva och utländska företag tas bort om något annat finns kvar. count>2000 → QUERY_TOO_BROAD. count=0 → ingen träff.`;
+Svar: { count, returned, results, source, attribution }. attribution är "Källa: SCB". source är "cache" eller "scb". Varje rad har bara organizationNumber, name, city, sizeClass, industry och status. SCB-läget rankar hela träffmängden: verksamma först, svenskt säte före utland, större storleksklass, sedan exakt namn. Inaktiva och utländska företag tas bort om något annat finns kvar. count>2000 → QUERY_TOO_BROAD. count=0 → ingen träff.`;
 
 export const COMPANY_WEBSITE_SUMMARY_DESCRIPTION = `Kort svensk sammanfattning av ett företags officiella webbplats, för att säga vad de gör.
 
