@@ -20,6 +20,7 @@ type LogFields = {
   reason?: string;
   searchMs?: number;
   bestScore?: number;
+  lowConfidence?: boolean;
 };
 
 const SENSITIVE_KEY = /password|passphrase|pfx|private.?key|cert(?:ificate)?|token|secret|authorization|api.?key/i;

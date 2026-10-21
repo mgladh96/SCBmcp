@@ -3,12 +3,13 @@ import {
   CACHE_NAME_LIMIT,
   indexCompany,
   NAME_MATCH_THRESHOLD,
+  PLAUSIBLE_THRESHOLD,
   rankCompanies,
   type CachedCompany,
   type IndexedCompany,
 } from "./rank.js";
 
-export { CACHE_NAME_LIMIT, NAME_MATCH_THRESHOLD };
+export { CACHE_NAME_LIMIT, NAME_MATCH_THRESHOLD, PLAUSIBLE_THRESHOLD };
 export type { CachedCompany };
 
 /** In-memory company snapshot lifetime. */
@@ -48,7 +49,14 @@ export class CompanyCacheError extends Error {
 }
 
 export type NameSearchOutcome =
-  | { kind: "hit"; results: CachedCompany[]; matched: number; bestScore: number; searchMs: number }
+  | {
+      kind: "hit";
+      results: CachedCompany[];
+      matched: number;
+      bestScore: number;
+      searchMs: number;
+      lowConfidence: boolean;
+    }
   | { kind: "miss"; bestScore: number; searchMs: number }
   | { kind: "unavailable"; reason: "missing_credentials" | "load_failed" | "timeout" };
 
@@ -127,7 +135,7 @@ export function createCompanyDirectory(options: {
       const started = now();
       const ranked = rankCompanies(loaded.companies, name, limit);
       const searchMs = Math.max(0, now() - started);
-      if (ranked.matched === 0 || ranked.bestScore < NAME_MATCH_THRESHOLD) {
+      if (ranked.matched === 0 || ranked.bestScore < PLAUSIBLE_THRESHOLD) {
         return { kind: "miss", bestScore: ranked.bestScore, searchMs };
       }
       return {
@@ -136,6 +144,7 @@ export function createCompanyDirectory(options: {
         matched: ranked.matched,
         bestScore: ranked.bestScore,
         searchMs,
+        lowConfidence: ranked.lowConfidence,
       };
     },
     async findByOrganizationNumber(organizationNumber) {

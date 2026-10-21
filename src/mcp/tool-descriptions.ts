@@ -49,7 +49,7 @@ export const FIND_COMPANY_DESCRIPTION = `Read-only uppslag av ett företag (juri
 - Ange minst ett fält. Båda tillsammans: org.nr i registret vinner, annars AND mot SCB.
 - maxRows utelämnad = 3 mot SCB, högst 3. Namnträff i registret ger upp till 5 om maxRows utelämnas.
 
-Svar: { count, returned, results, source, attribution }. attribution är "Källa: SCB". source är "cache" eller "scb". Varje rad har bara organizationNumber, name, city, sizeClass, industry och status. SCB-läget rankar hela träffmängden: verksamma först, svenskt säte före utland, större storleksklass, sedan exakt namn. Inaktiva och utländska företag tas bort om något annat finns kvar. count>2000 → QUERY_TOO_BROAD. count=0 → ingen träff.`;
+Svar: { count, returned, results, source, attribution, lowConfidence? }. attribution är "Källa: SCB". source är "cache" eller "scb". lowConfidence sätts när träffen kommer från registret men namnet bara är ungefärligt — läs upp kandidaterna, gå inte vidare till en ny sökning. Varje rad har bara organizationNumber, name, city, sizeClass, industry och status. SCB-läget rankar hela träffmängden: verksamma först, svenskt säte före utland, större storleksklass, sedan exakt namn. Inaktiva och utländska företag tas bort om något annat finns kvar. count>2000 → QUERY_TOO_BROAD. count=0 → ingen träff.`;
 
 export const COMPANY_WEBSITE_SUMMARY_DESCRIPTION = `Kort svensk sammanfattning av ett företags officiella webbplats, för att säga vad de gör.
 

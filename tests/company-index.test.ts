@@ -5,6 +5,7 @@ import { normalizeCompanyName } from "../src/companies/normalize.js";
 import {
   indexCompany,
   NAME_MATCH_THRESHOLD,
+  PLAUSIBLE_THRESHOLD,
   rankCompanies,
   scoreCompanyName,
   type CachedCompany,
@@ -21,6 +22,7 @@ describe("normalizeCompanyName", () => {
     expect(normalizeCompanyName("Anders Westlunds Entreprenad AB")).toBe("anders westlunds entreprenad");
     expect(normalizeCompanyName("Skåne-Bygg, AB")).toBe("skane bygg");
     expect(normalizeCompanyName("  Peab.  ")).toBe("peab");
+    expect(normalizeCompanyName("Tre ab bygg")).toBe("treab bygg");
     expect(normalizeCompanyName(normalizeCompanyName("TORÉNS AB"))).toBe("torens");
   });
 
@@ -84,10 +86,78 @@ describe("company name ranking", () => {
     expect(westlund.results[0]?.name).toBe("Anders Westlunds Entreprenad AB");
   });
 
+  it("matches spoken names, including a split AB and a trailing place", () => {
+    const spoken = [
+      company({
+        organizationNumber: "5560000011",
+        name: "TREEAB BYGG I ÖSTERSUND AB",
+        nameNormalized: "treeab bygg i ostersund",
+        city: "Östersund",
+        status: "verksam",
+      }),
+      company({
+        organizationNumber: "5560000012",
+        name: "TORÉNS AB",
+        nameNormalized: "torens",
+        status: "verksam",
+      }),
+      company({
+        organizationNumber: "5560000013",
+        name: "TORÉNS ENTREPRENAD AB",
+        nameNormalized: "torens entreprenad",
+        status: "verksam",
+      }),
+      company({
+        organizationNumber: "5560000014",
+        name: "KENDRIL BYGG I STOCKHOLM AB",
+        nameNormalized: "kendril bygg i stockholm",
+        city: "Stockholm",
+        status: "verksam",
+      }),
+      company({
+        organizationNumber: "5560000004",
+        name: "Trelleborgs Bygg AB",
+        nameNormalized: "trelleborgs bygg",
+        status: "verksam",
+      }),
+    ].map((item) => indexCompany(item));
+
+    expect(rankCompanies(spoken, "Treab bygg")).toMatchObject({
+      lowConfidence: false,
+      results: [expect.objectContaining({ name: "TREEAB BYGG I ÖSTERSUND AB" })],
+    });
+    expect(rankCompanies(spoken, "Tre ab bygg").results[0]?.name).toBe("TREEAB BYGG I ÖSTERSUND AB");
+    expect(rankCompanies(spoken, "Torens").results[0]?.name).toBe("TORÉNS AB");
+    expect(rankCompanies(spoken, "Toréns entreprenad östersund").results[0]?.name).toBe(
+      "TORÉNS ENTREPRENAD AB",
+    );
+    expect(rankCompanies(spoken, "Kendril").results[0]?.name).toBe("KENDRIL BYGG I STOCKHOLM AB");
+    expect(rankCompanies(spoken, "Treab bygg").bestScore).toBeGreaterThanOrEqual(NAME_MATCH_THRESHOLD);
+  });
+
+  it("returns a weak candidate instead of a miss when the score is still plausible", () => {
+    const ranked = rankCompanies(
+      [
+        indexCompany({
+          organizationNumber: "5560000004",
+          name: "Trelleborgs Bygg AB",
+          nameNormalized: "trelleborgs bygg",
+          status: "verksam",
+        }),
+      ],
+      "Treab bygg",
+    );
+    expect(ranked.lowConfidence).toBe(true);
+    expect(ranked.bestScore).toBeGreaterThanOrEqual(PLAUSIBLE_THRESHOLD);
+    expect(ranked.bestScore).toBeLessThan(NAME_MATCH_THRESHOLD);
+    expect(ranked.results[0]?.name).toBe("Trelleborgs Bygg AB");
+  });
+
   it("does not treat an unrelated name as a hit", () => {
     const ranked = rankCompanies(companies, "Qzqzqzq Byggfirma");
-    expect(ranked.bestScore).toBeLessThan(NAME_MATCH_THRESHOLD);
+    expect(ranked.bestScore).toBeLessThan(PLAUSIBLE_THRESHOLD);
     expect(ranked.matched).toBe(0);
+    expect(ranked.lowConfidence).toBe(false);
   });
 
   it("searches a few thousand companies in well under 300 ms", () => {

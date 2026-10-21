@@ -173,12 +173,17 @@ function withScbAttribution(payload: VoiceCompanyPayload): VoiceCompanyPayload &
   return { ...payload, source: "scb", attribution: SCB_ATTRIBUTION };
 }
 
-function cacheCompanyPayload(companies: readonly CachedCompany[], matched: number): {
+function cacheCompanyPayload(
+  companies: readonly CachedCompany[],
+  matched: number,
+  lowConfidence = false,
+): {
   count: number;
   returned: number;
   results: VoiceCompany[];
   source: "cache";
   attribution: string;
+  lowConfidence?: boolean;
 } {
   return {
     count: matched,
@@ -186,6 +191,7 @@ function cacheCompanyPayload(companies: readonly CachedCompany[], matched: numbe
     results: companies.map(voiceFromCache),
     source: "cache",
     attribution: SCB_ATTRIBUTION,
+    ...(lowConfidence ? { lowConfidence: true } : {}),
   };
 }
 
@@ -581,8 +587,9 @@ export function createToolHandlers(
             count: found.matched,
             source: "cache",
             searchMs: found.searchMs,
+            ...(found.lowConfidence ? { lowConfidence: true } : {}),
           });
-          return jsonResult(cacheCompanyPayload(found.results, found.matched));
+          return jsonResult(cacheCompanyPayload(found.results, found.matched, found.lowConfidence));
         }
         log.info("MCP tool", {
           tool: "scb_find_company",

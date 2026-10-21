@@ -1,7 +1,33 @@
 import { normalizeCompanyName } from "./normalize.js";
 
-/** Below this, a name is not a reasonable cache hit and live SCB is used. */
+/** Confident cache hit. One or two character edits per token clear this. */
 export const NAME_MATCH_THRESHOLD = 0.86;
+
+/**
+ * Weaker cache hit. Still returned (marked lowConfidence) so a voice call
+ * does not wait on live SCB. Below this, the cache has nothing plausible.
+ */
+export const PLAUSIBLE_THRESHOLD = 0.7;
+
+const FILLER = new Set(["i", "av", "och", "for", "med", "pa", "vid", "att", "den", "det"]);
+
+/** Words that describe the trade, not which company it is. */
+const GENERIC = new Set([
+  "bygg",
+  "byggen",
+  "byggare",
+  "entreprenad",
+  "entreprenader",
+  "gruppen",
+  "group",
+  "sverige",
+  "holding",
+  "service",
+  "konsult",
+  "fastigheter",
+  "anlaggning",
+  "montage",
+]);
 
 /** Voice name search returns at most this many cache rows. */
 export const CACHE_NAME_LIMIT = 5;
@@ -36,56 +62,70 @@ export function scoreNormalizedName(query: string, name: string): number {
   if (query.length < 3 || name.length === 0) {
     return 0;
   }
-  if (query === name) {
+  const queryTokens = contentTokens(query);
+  const nameTokens = contentTokens(name);
+  if (queryTokens.length === 0 || nameTokens.length === 0) {
+    return 0;
+  }
+  const compactName = nameTokens.join("");
+  const scored = queryTokens.map((token) => ({
+    token,
+    score: Math.max(bestTokenScore(token, nameTokens), bestSubstringScore(token, compactName)),
+  }));
+  const aligned = trimUnmatchedTail(scored);
+  if (aligned.length === 0) {
+    return 0;
+  }
+  const joinedQuery = aligned.map((item) => item.token).join(" ");
+  const joinedName = nameTokens.join(" ");
+  if (joinedQuery === joinedName) {
     return 1;
   }
-  const queryTokens = query.split(" ");
-  const nameTokens = name.split(" ").filter((token) => token.length > 0);
-  let score = 0;
-  if (name.startsWith(`${query} `) || name.startsWith(query)) {
-    score = Math.max(score, 0.92 + 0.06 * (query.length / name.length));
-  } else if (name.length >= 4 && (query.startsWith(`${name} `) || query.startsWith(name))) {
-    score = Math.max(score, 0.9);
+  const score = combineTokenScores(aligned);
+  if (score < PLAUSIBLE_THRESHOLD) {
+    return score;
   }
-  const tokenScores = queryTokens.map((token) => bestTokenScore(token, nameTokens));
-  const mean = tokenScores.reduce((sum, value) => sum + value, 0) / tokenScores.length;
-  const best = tokenScores.reduce((max, value) => (value > max ? value : max), 0);
-  const covered = tokenScores.filter((value) => value >= NAME_MATCH_THRESHOLD).length / tokenScores.length;
-  let tokenScore = mean;
-  if (covered >= 0.5 && best >= 0.9) {
-    tokenScore = Math.max(tokenScore, best * 0.94);
+  if (joinedName === joinedQuery || joinedName.startsWith(`${joinedQuery} `)) {
+    return Math.max(score, 0.94 + 0.04 * (joinedQuery.length / joinedName.length));
   }
-  return Math.max(score, tokenScore, jaroWinkler(query, name), trigramDice(query, name));
+  return score;
 }
 
 export function rankCompanies(
   companies: readonly IndexedCompany[],
   query: string,
   limit = CACHE_NAME_LIMIT,
-): { results: IndexedCompany[]; matched: number; bestScore: number } {
+): { results: IndexedCompany[]; matched: number; bestScore: number; lowConfidence: boolean } {
   const normalized = normalizeCompanyName(query);
   const capped = Math.min(CACHE_NAME_LIMIT, Math.max(1, limit));
   if (normalized.length < 3) {
-    return { results: [], matched: 0, bestScore: 0 };
+    return { results: [], matched: 0, bestScore: 0, lowConfidence: false };
   }
-  const hits: Array<{ company: IndexedCompany; score: number; gap: number }> = [];
+  const hits: Array<{ company: IndexedCompany; score: number; gap: number; matchedTokens: number }> = [];
   let bestScore = 0;
   for (const company of companies) {
     const score = scoreNormalizedName(normalized, company.nameNormalized);
     if (score > bestScore) {
       bestScore = score;
     }
-    if (score >= NAME_MATCH_THRESHOLD) {
+    if (score >= PLAUSIBLE_THRESHOLD) {
       hits.push({
         company,
         score,
-        gap: Math.abs(company.nameNormalized.length - normalized.length),
+        gap: Math.abs(contentTokens(company.nameNormalized).length - contentTokens(normalized).length),
+        matchedTokens: matchedTokenCount(normalized, company.nameNormalized),
       });
     }
   }
-  hits.sort((left, right) => {
+  const lowConfidence = bestScore < NAME_MATCH_THRESHOLD;
+  const floor = lowConfidence ? PLAUSIBLE_THRESHOLD : NAME_MATCH_THRESHOLD;
+  const selected = hits.filter((hit) => hit.score >= floor);
+  selected.sort((left, right) => {
     if (right.score !== left.score) {
       return right.score - left.score;
+    }
+    if (right.matchedTokens !== left.matchedTokens) {
+      return right.matchedTokens - left.matchedTokens;
     }
     if (left.gap !== right.gap) {
       return left.gap - right.gap;
@@ -93,10 +133,61 @@ export function rankCompanies(
     return left.company.name.localeCompare(right.company.name, "sv");
   });
   return {
-    results: hits.slice(0, capped).map((hit) => hit.company),
-    matched: hits.length,
+    results: selected.slice(0, capped).map((hit) => hit.company),
+    matched: selected.length,
     bestScore,
+    lowConfidence: lowConfidence && selected.length > 0,
   };
+}
+
+function contentTokens(value: string): string[] {
+  return value
+    .split(/[^a-z0-9]+/u)
+    .filter((token) => token.length > 1 && !FILLER.has(token));
+}
+
+type ScoredToken = { token: string; score: number };
+
+/**
+ * Drop a trailing place or extra word when some earlier word already matches.
+ * "Toréns entreprenad östersund" can still match "torens entreprenad".
+ */
+function trimUnmatchedTail(scored: readonly ScoredToken[]): ScoredToken[] {
+  let end = scored.length;
+  while (end > 1 && (scored[end - 1]?.score ?? 0) < NAME_MATCH_THRESHOLD) {
+    const head = scored.slice(0, end - 1);
+    if (!head.some((item) => item.score >= NAME_MATCH_THRESHOLD)) {
+      break;
+    }
+    end -= 1;
+  }
+  return scored.slice(0, end).filter((item) => item.token.length >= 3);
+}
+
+function combineTokenScores(scored: readonly ScoredToken[]): number {
+  if (scored.length === 0) {
+    return 0;
+  }
+  const distinctive = scored.filter((item) => !GENERIC.has(item.token));
+  const pool = distinctive.length > 0 ? distinctive : scored;
+  const weakest = pool.reduce((min, item) => (item.score < min ? item.score : min), 1);
+  if (weakest < PLAUSIBLE_THRESHOLD) {
+    return weakest;
+  }
+  const mean = pool.reduce((sum, item) => sum + item.score, 0) / pool.length;
+  if (weakest < NAME_MATCH_THRESHOLD) {
+    return Math.min(mean, NAME_MATCH_THRESHOLD - 0.01);
+  }
+  return mean;
+}
+
+function matchedTokenCount(query: string, name: string): number {
+  const nameTokens = contentTokens(name);
+  const compactName = nameTokens.join("");
+  return contentTokens(query).filter((token) => {
+    const score = Math.max(bestTokenScore(token, nameTokens), bestSubstringScore(token, compactName));
+    return score >= NAME_MATCH_THRESHOLD;
+  }).length;
 }
 
 function bestTokenScore(token: string, nameTokens: readonly string[]): number {
@@ -109,6 +200,9 @@ function bestTokenScore(token: string, nameTokens: readonly string[]): number {
     if (similarity > best) {
       best = similarity;
     }
+    if (best === 1) {
+      return 1;
+    }
   }
   return best;
 }
@@ -117,13 +211,80 @@ function tokenSimilarity(queryToken: string, nameToken: string): number {
   if (queryToken === nameToken) {
     return 1;
   }
-  if (queryToken.length >= 4 && nameToken.startsWith(queryToken)) {
-    return 0.9 + 0.08 * (queryToken.length / nameToken.length);
+  const distance = levenshtein(queryToken, nameToken, 2);
+  const longer = Math.max(queryToken.length, nameToken.length);
+  if (distance === 1 && longer >= 4) {
+    return 0.95;
   }
-  if (nameToken.length >= 4 && queryToken.startsWith(nameToken)) {
-    return 0.88 * (nameToken.length / queryToken.length);
+  if (distance === 2 && longer >= 5) {
+    return 0.9;
+  }
+  if (queryToken.length >= 3 && nameToken.startsWith(queryToken)) {
+    return 0.92 + 0.06 * (queryToken.length / nameToken.length);
+  }
+  if (nameToken.length >= 4 && queryToken.startsWith(nameToken) && nameToken.length / queryToken.length >= 0.6) {
+    return 0.88;
   }
   return Math.max(jaroWinkler(queryToken, nameToken), trigramDice(queryToken, nameToken));
+}
+
+/** Match a token inside a name that was stored without spaces. */
+function bestSubstringScore(token: string, compactName: string): number {
+  if (token.length < 4 || compactName.length < token.length) {
+    return 0;
+  }
+  if (compactName.includes(token)) {
+    return 1;
+  }
+  let best = 0;
+  const minLength = Math.max(3, token.length - 1);
+  const maxLength = Math.min(compactName.length, token.length + 2);
+  for (let length = minLength; length <= maxLength; length += 1) {
+    for (let index = 0; index + length <= compactName.length; index += 1) {
+      const distance = levenshtein(token, compactName.slice(index, index + length), 2);
+      if (distance === 0) {
+        return 1;
+      }
+      if (distance === 1 && token.length >= 4) {
+        best = Math.max(best, 0.95);
+      }
+    }
+    if (best >= 0.95) {
+      return best;
+    }
+  }
+  return best;
+}
+
+function levenshtein(left: string, right: string, cap: number): number {
+  if (left === right) {
+    return 0;
+  }
+  if (Math.abs(left.length - right.length) > cap) {
+    return cap + 1;
+  }
+  let previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= left.length; i += 1) {
+    const current = [i];
+    let rowBest = i;
+    const leftChar = left.charAt(i - 1);
+    for (let j = 1; j <= right.length; j += 1) {
+      const cost = leftChar === right.charAt(j - 1) ? 0 : 1;
+      const insert = (current[j - 1] ?? cap) + 1;
+      const remove = (previous[j] ?? cap) + 1;
+      const replace = (previous[j - 1] ?? cap) + cost;
+      const next = Math.min(insert, remove, replace);
+      current[j] = next;
+      if (next < rowBest) {
+        rowBest = next;
+      }
+    }
+    if (rowBest > cap) {
+      return cap + 1;
+    }
+    previous = current;
+  }
+  return previous[right.length] ?? cap + 1;
 }
 
 export function jaroWinkler(left: string, right: string): number {

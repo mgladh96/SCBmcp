@@ -389,6 +389,37 @@ describe("scb_find_company", () => {
     expect(payload.results[0]?.name).toBe("TREEAB");
   });
 
+  it("returns a low-confidence cache hit instead of calling SCB", async () => {
+    let called = false;
+    const handlers = createToolHandlers(
+      createTestClient(async () => {
+        called = true;
+        return jsonResponse(200, 0);
+      }),
+      silent,
+      {
+        companies: directoryOf([
+          {
+            organizationNumber: "5560000004",
+            name: "Trelleborgs Bygg AB",
+            nameNormalized: "trelleborgs bygg",
+            status: "verksam",
+          },
+        ]),
+      },
+    );
+    const result = await handlers.scb_find_company({ name: "Treab bygg" });
+    expect(called).toBe(false);
+    const payload = JSON.parse(result.content[0]?.text ?? "{}") as {
+      source?: string;
+      lowConfidence?: boolean;
+      results: Array<{ name?: string }>;
+    };
+    expect(payload.source).toBe("cache");
+    expect(payload.lowConfidence).toBe(true);
+    expect(payload.results[0]?.name).toBe("Trelleborgs Bygg AB");
+  });
+
   it("falls back to SCB when the local index has no reasonable name", async () => {
     const bodies: unknown[] = [];
     const handlers = createToolHandlers(
