@@ -7,7 +7,8 @@ import { ScbError } from "../domain/errors.js";
 import { createLogger } from "../log.js";
 import { bundledCatalogPath } from "../scb/offline-catalog.js";
 import { ScbClient } from "../scb/client.js";
-import { isWebRequestAuthorized } from "./auth.js";
+import { defaultCompanyDirectory, type CompanyIndexStatus } from "../companies/directory.js";
+import { isWebRequestAuthorized, mcpTokensEqual, tokenFromAuthorization } from "./auth.js";
 import { MCP_PATH } from "./http.js";
 import { createMcpServer, createToolHandlers } from "./server.js";
 import { websiteRuntimeFromConfig } from "../web/company-website.js";
@@ -40,10 +41,24 @@ export function isVercelHealthRequest(request: Request): boolean {
   return url.searchParams.get("route") === "health";
 }
 
-/** One function serves `/health` and `/mcp` so Fluid Compute can reuse the instance. */
+/** `/api/warm` is rewritten onto this function. A separate function would warm another instance. */
+export function isVercelWarmRequest(request: Request): boolean {
+  const url = new URL(request.url);
+  if (url.pathname === "/api/warm" || url.pathname === "/warm") {
+    return true;
+  }
+  return url.searchParams.get("route") === "warm";
+}
+
+export type VercelRequestOptions = {
+  ensureLoaded?: () => Promise<CompanyIndexStatus>;
+};
+
+/** One function serves `/health`, `/api/warm`, and `/mcp` so Fluid Compute can reuse the instance. */
 export function handleVercelRequest(
   request: Request,
   env: NodeJS.ProcessEnv = process.env,
+  options: VercelRequestOptions = {},
 ): Promise<Response> | Response {
   if (isVercelHealthRequest(request)) {
     if (request.method !== "GET" && request.method !== "HEAD") {
@@ -51,7 +66,46 @@ export function handleVercelRequest(
     }
     return handleVercelHealthRequest();
   }
+  if (isVercelWarmRequest(request)) {
+    return handleVercelWarmRequest(request, env, options.ensureLoaded);
+  }
   return handleVercelMcpRequest(request, env);
+}
+
+/**
+ * Keep-warm ping. Awaits the Firestore company index on this instance.
+ * When `CRON_SECRET` is set, Vercel Cron sends `Authorization: Bearer <CRON_SECRET>`.
+ * When it is unset, the route stays open so the cron still runs.
+ */
+export async function handleVercelWarmRequest(
+  request: Request,
+  env: NodeJS.ProcessEnv = process.env,
+  ensureLoaded?: () => Promise<CompanyIndexStatus>,
+): Promise<Response> {
+  if (request.method !== "GET") {
+    return methodNotAllowed("GET");
+  }
+  if (!isCronAuthorized(request, env)) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  const load = ensureLoaded ?? (() => defaultCompanyDirectory().ensureLoaded());
+  const status = await load();
+  return Response.json(
+    { loaded: status.loaded, count: status.count, ageSeconds: status.ageSeconds },
+    { status: status.loaded ? 200 : 503 },
+  );
+}
+
+function isCronAuthorized(request: Request, env: NodeJS.ProcessEnv): boolean {
+  const secret = env.CRON_SECRET?.trim();
+  if (!secret) {
+    return true;
+  }
+  const provided = tokenFromAuthorization(request.headers.get("authorization") ?? undefined);
+  if (!provided) {
+    return false;
+  }
+  return mcpTokensEqual(provided, secret);
 }
 
 type Runtime = {

@@ -63,11 +63,19 @@ export type OrgSearchOutcome =
   | { kind: "miss" }
   | { kind: "unavailable"; reason: "missing_credentials" | "load_failed" };
 
+export type CompanyIndexStatus = {
+  loaded: boolean;
+  count: number;
+  ageSeconds: number;
+};
+
 export type CompanyDirectory = {
   searchByName(name: string, limit?: number): Promise<NameSearchOutcome>;
   findByOrganizationNumber(organizationNumber: string): Promise<OrgSearchOutcome>;
   /** Start a load if the snapshot is missing or stale. Does not block the caller. */
   warm(): void;
+  /** Await a fresh snapshot. Used by the keep-warm route. */
+  ensureLoaded(): Promise<CompanyIndexStatus>;
 };
 
 type Snapshot = {
@@ -159,6 +167,18 @@ export function createCompanyDirectory(options: {
       if (!snapshot || at - snapshot.at >= ttlMs) {
         void start();
       }
+    },
+    async ensureLoaded() {
+      const at = now();
+      const loaded = !snapshot || at - snapshot.at >= ttlMs ? await start() : snapshot;
+      if (!isSnapshot(loaded)) {
+        return { loaded: false, count: 0, ageSeconds: 0 };
+      }
+      return {
+        loaded: true,
+        count: loaded.index.docCount,
+        ageSeconds: Math.max(0, Math.floor((now() - loaded.at) / 1000)),
+      };
     },
   };
 }

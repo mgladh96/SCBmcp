@@ -273,6 +273,68 @@ describe("company documents", () => {
 });
 
 describe("company directory", () => {
+  it("reports count and age once the index is loaded", async () => {
+    let clock = 10_000;
+    const directory = createCompanyDirectory({
+      load: async () => [
+        company({
+          organizationNumber: "5566086376",
+          name: "TREEAB BYGG I ÖSTERSUND AB",
+          nameNormalized: "treeab bygg i ostersund",
+          status: "verksam",
+        }),
+        company({
+          organizationNumber: "5561000006",
+          name: "TORÉNS AB",
+          nameNormalized: "torens",
+          status: "verksam",
+        }),
+      ],
+      now: () => clock,
+    });
+    expect(await directory.ensureLoaded()).toEqual({ loaded: true, count: 2, ageSeconds: 0 });
+    clock += 2_500;
+    expect(await directory.ensureLoaded()).toEqual({ loaded: true, count: 2, ageSeconds: 2 });
+  });
+
+  it("waits for a stale index to finish reloading", async () => {
+    let clock = 1_000;
+    let loads = 0;
+    let releaseRefresh: () => void = () => {};
+    const directory = createCompanyDirectory({
+      load: async () => {
+        loads += 1;
+        if (loads > 1) {
+          await new Promise<void>((resolve) => {
+            releaseRefresh = resolve;
+          });
+        }
+        return [
+          company({
+            organizationNumber: "5560000001",
+            name: "TREEAB",
+            nameNormalized: "treeab",
+            status: "verksam",
+          }),
+        ];
+      },
+      now: () => clock,
+      ttlMs: 1_000,
+    });
+    expect(await directory.ensureLoaded()).toEqual({ loaded: true, count: 1, ageSeconds: 0 });
+    clock += 5_000;
+    let settled = false;
+    const pending = directory.ensureLoaded().then((status) => {
+      settled = true;
+      return status;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    expect(loads).toBe(2);
+    releaseRefresh();
+    expect(await pending).toEqual({ loaded: true, count: 1, ageSeconds: 0 });
+  });
+
   it("waits for the first index load instead of giving up", async () => {
     let release: () => void = () => {};
     const gate = new Promise<void>((resolve) => {

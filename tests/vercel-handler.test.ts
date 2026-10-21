@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { describe, expect, it } from "vitest";
@@ -53,6 +54,86 @@ describe("Vercel health handler", () => {
     const rewritten = await handleVercelRequest(mcpRequest("/api/mcp?route=health"));
     expect(direct.status).toBe(200);
     expect(rewritten.status).toBe(200);
+  });
+});
+
+describe("Vercel company-index warm route", () => {
+  const ready = async () => ({ loaded: true, count: 7202, ageSeconds: 4 });
+
+  it("keeps /api/warm on the mcp function and cron", () => {
+    const config = JSON.parse(readFileSync("vercel.json", "utf8")) as {
+      rewrites: Array<{ source: string; destination: string }>;
+      crons: Array<{ path: string; schedule: string }>;
+      functions: Record<string, unknown>;
+    };
+    expect(config.rewrites).toContainEqual({
+      source: "/api/warm",
+      destination: "/api/mcp?route=warm",
+    });
+    expect(config.crons).toContainEqual({ path: "/api/warm", schedule: "*/2 * * * *" });
+    expect(config.functions).toHaveProperty("api/mcp.ts");
+    expect(config.functions).not.toHaveProperty("api/warm.ts");
+  });
+
+  it("awaits the index on the mcp function without MCP auth", async () => {
+    const direct = await handleVercelRequest(mcpRequest("/api/warm"), vercelEnv(), { ensureLoaded: ready });
+    const rewritten = await handleVercelRequest(mcpRequest("/api/mcp?route=warm"), vercelEnv(), {
+      ensureLoaded: ready,
+    });
+    expect(direct.status).toBe(200);
+    expect(rewritten.status).toBe(200);
+    expect(await rewritten.json()).toEqual({ loaded: true, count: 7202, ageSeconds: 4 });
+  });
+
+  it("requires the cron bearer token only when CRON_SECRET is set", async () => {
+    let calls = 0;
+    const ensureLoaded = async () => {
+      calls += 1;
+      return { loaded: true, count: 7, ageSeconds: 1 };
+    };
+    const env = vercelEnv({ CRON_SECRET: "cron-secret" });
+    const missing = await handleVercelRequest(mcpRequest("/api/warm"), env, { ensureLoaded });
+    expect(missing.status).toBe(401);
+    expect(calls).toBe(0);
+    const wrong = await handleVercelRequest(
+      mcpRequest("/api/warm", { headers: { Authorization: "Bearer other-secret" } }),
+      env,
+      { ensureLoaded },
+    );
+    expect(wrong.status).toBe(401);
+    expect(calls).toBe(0);
+    const allowed = await handleVercelRequest(
+      mcpRequest("/api/mcp?route=warm", { headers: { Authorization: "Bearer cron-secret" } }),
+      env,
+      { ensureLoaded },
+    );
+    expect(allowed.status).toBe(200);
+    expect(await allowed.json()).toEqual({ loaded: true, count: 7, ageSeconds: 1 });
+    expect(calls).toBe(1);
+  });
+
+  it("returns 503 when the index does not load", async () => {
+    const response = await handleVercelRequest(mcpRequest("/api/warm"), vercelEnv(), {
+      ensureLoaded: async () => ({ loaded: false, count: 0, ageSeconds: 0 }),
+    });
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ loaded: false, count: 0, ageSeconds: 0 });
+  });
+
+  it("rejects a non-GET warm ping before loading", async () => {
+    let calls = 0;
+    const response = await handleVercelRequest(
+      mcpRequest("/api/warm", { method: "POST" }),
+      vercelEnv(),
+      {
+        ensureLoaded: async () => {
+          calls += 1;
+          return { loaded: true, count: 1, ageSeconds: 0 };
+        },
+      },
+    );
+    expect(response.status).toBe(405);
+    expect(calls).toBe(0);
   });
 });
 

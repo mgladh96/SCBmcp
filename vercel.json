@@ -3,8 +3,10 @@
   "regions": ["arn1"],
   "rewrites": [
     { "source": "/mcp", "destination": "/api/mcp" },
-    { "source": "/health", "destination": "/api/mcp?route=health" }
+    { "source": "/health", "destination": "/api/mcp?route=health" },
+    { "source": "/api/warm", "destination": "/api/mcp?route=warm" }
   ],
+  "crons": [{ "path": "/api/warm", "schedule": "*/2 * * * *" }],
   "functions": {
     "api/mcp.ts": {
       "maxDuration": 60,

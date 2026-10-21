@@ -9,7 +9,10 @@ The deployment is one Node.js function, `api/mcp.ts`, in region **arn1 (Stockhol
 | Public URL | Rewrites to | Auth |
 | --- | --- | --- |
 | `https://<project>.vercel.app/health` | `/api/mcp?route=health` | open |
+| `https://<project>.vercel.app/api/warm` | `/api/mcp?route=warm` | open, or `Bearer CRON_SECRET` when that variable is set |
 | `https://<project>.vercel.app/mcp` | `/api/mcp` | `MCP_AUTH_TOKEN` |
+
+`/api/warm` is a rewrite onto `api/mcp.ts`, not its own function, so the cron hits the same Fluid instance as `/mcp` when one is free. It waits for the Firestore company index and returns `{ loaded, count, ageSeconds }`. `vercel.json` schedules that path every 2 minutes. Cron jobs run on production only. Set `CRON_SECRET` in the project; Vercel then sends `Authorization: Bearer <CRON_SECRET>` with the cron request.
 
 `/mcp` is stateless streamable HTTP (JSON). `GET` and `DELETE` return **405**. That matches what ElevenLabs’ Streamable HTTP transport needs, and it does not hold an SSE stream inside the function timeout.
 
@@ -38,6 +41,7 @@ Mark every secret **Sensitive** so the dashboard will not show the value again a
 | `MCP_EXPOSED_TOOLS` | no | `voice` |
 | `TAVILY_API_KEY` | yes | Tavily Search API key. `company_website_summary` uses it when `url` is omitted |
 | `OPENAI_API_KEY` | yes | Optional. If set, the website summary is written by `gpt-4o-mini`. If unset, the tool returns extracted Swedish sentences and does not call a model |
+| `CRON_SECRET` | yes | Optional. When set, `GET /api/warm` requires `Authorization: Bearer <CRON_SECRET>`. Vercel Cron adds that header itself |
 
 Do not set `SCB_CERT_PATH`. The function decodes `SCB_CERT_BASE64` in memory and does not write the pfx to disk. Vercel’s filesystem is read-only except `/tmp`.
 
@@ -144,7 +148,7 @@ The tool searches with Tavily when `url` is missing, skips directory sites, and 
 ## Limits
 
 - **Timeout.** This function sets `maxDuration` to **60 seconds** (`api/mcp.ts` and `vercel.json`). The platform default is 300 seconds on every plan, including Hobby. Hobby cannot go past 300 seconds. Pro and Enterprise can raise a function to 800 seconds (1800 seconds only in the extended-duration beta). Sixty seconds is enough for an SCB lookup and lines up with ElevenLabs’ tool timeout (their default is 30 seconds, maximum 300).
-- **Cold starts.** Fluid Compute reuses a warm instance across requests, including `/health` and `/mcp`, so a health check can keep the process warm. After idle, the next request still pays a cold start: Node boot, the MCP SDK, and decoding the pfx. There is no minimum-instance setting like Cloud Run.
+- **Cold starts.** Fluid Compute reuses a warm instance across requests to the same function. `/health`, `/api/warm`, and `/mcp` are that function. A production cron calls `/api/warm` every 2 minutes, waits until the company index is loaded, and keeps the instance from going idle. After a long idle the next request still pays a cold start: Node boot, the MCP SDK, and the Firestore read. There is no minimum-instance setting like Cloud Run.
 - **Body size.** Request and response bodies are capped at **4.5 MB**. MCP JSON is far smaller.
 - **Region.** `vercel.json` sets `"regions": ["arn1"]`, and the function executes there. `x-vercel-id` looks like `iad1::arn1::…`: the first segment is the edge that accepted the request, the second is the function region. A client in the US shows `iad1` first while the function still runs in Stockholm.
 - **SSE.** Do not point ElevenLabs at an SSE URL on Vercel. The handler returns JSON and answers `GET /mcp` with 405 so the invocation ends.
